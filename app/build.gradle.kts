@@ -21,8 +21,8 @@ android {
         applicationId = "com.smithware.contentlens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1-keyboard-fix"
+        versionCode = 3
+        versionName = "0.1.2-search-control-fix"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

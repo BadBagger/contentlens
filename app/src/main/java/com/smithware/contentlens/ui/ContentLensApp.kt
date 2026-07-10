@@ -6,14 +6,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -131,7 +129,7 @@ fun ContentLensApp(viewModel: ContentLensViewModel) {
             ) {
                 when (screen) {
                     Screen.Home -> HomeScreen(state, viewModel, onOpenSearch = { screen = Screen.Search })
-                    Screen.Search -> SearchScreen(state, viewModel)
+                    Screen.Search -> SearchScreen(state, viewModel, onOpenReport = { screen = Screen.Report })
                     Screen.Watchlist -> WatchlistScreen(state, viewModel)
                     Screen.Profiles -> ProfilesScreen(state, viewModel)
                     Screen.Report -> SubmitReportScreen(state, viewModel)
@@ -183,9 +181,13 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
 }
 
 @Composable
-private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel) {
+private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpenReport: () -> Unit) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    fun closeKeyboard() {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
     val results = remember(state.query, state.titles) {
         state.titles.filter { it.title.contains(state.query, ignoreCase = true) || state.query.isBlank() }
     }
@@ -211,30 +213,56 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel) {
                 }
             },
             keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Words,
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
                 imeAction = ImeAction.Search
             ),
             keyboardActions = KeyboardActions(
-                onSearch = {
-                    focusManager.clearFocus()
-                    keyboardController?.hide()
-                },
-                onDone = {
-                    focusManager.clearFocus()
-                    keyboardController?.hide()
-                }
+                onSearch = { closeKeyboard() },
+                onDone = { closeKeyboard() }
             ),
             singleLine = true
         )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = { closeKeyboard() },
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(Icons.Outlined.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Search")
+            }
+            OutlinedButton(
+                onClick = {
+                    closeKeyboard()
+                    onOpenReport()
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Report title")
+            }
+        }
         Spacer(Modifier.height(12.dp))
         if (results.isEmpty()) {
-            EmptyState("No matching titles", "Try a different search or submit a local report for this title.")
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                EmptyState("No matching titles", "Try a different search or submit a local report for this title.")
+                TextButton(
+                    onClick = {
+                        closeKeyboard()
+                        viewModel.updateQuery("")
+                    }
+                ) {
+                    Text("Clear search")
+                }
+            }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(results, key = { it.id }) { title ->
                     TitleResultRow(title, title.id == state.selectedTitleId) {
-                        focusManager.clearFocus()
-                        keyboardController?.hide()
+                        closeKeyboard()
                         viewModel.selectTitle(title.id)
                     }
                 }

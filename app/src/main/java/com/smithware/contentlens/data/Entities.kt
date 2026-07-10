@@ -1,0 +1,80 @@
+package com.smithware.contentlens.data
+
+import androidx.room.Entity
+import androidx.room.PrimaryKey
+import androidx.room.TypeConverter
+import com.smithware.contentlens.domain.ContentCategory
+import com.smithware.contentlens.domain.MediaType
+import com.smithware.contentlens.domain.Sensitivity
+import com.smithware.contentlens.domain.Severity
+
+@Entity(tableName = "media_titles")
+data class MediaTitleEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val year: Int,
+    val type: MediaType,
+    val officialRating: String?,
+    val summary: String,
+    val posterTone: String
+)
+
+@Entity(tableName = "content_rating_entries")
+data class ContentRatingEntryEntity(
+    @PrimaryKey val id: String,
+    val titleId: String,
+    val category: ContentCategory,
+    val severity: Severity,
+    val explanation: String,
+    val isSpoilerFree: Boolean = true,
+    val spoilerNote: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val timestampHint: String? = null,
+    val source: String = "Demo report"
+)
+
+@Entity(tableName = "content_reports")
+data class ContentReportEntity(
+    @PrimaryKey val id: String,
+    val titleId: String,
+    val category: ContentCategory,
+    val severity: Severity,
+    val explanation: String,
+    val spoilerNote: String?,
+    val season: Int?,
+    val episode: Int?,
+    val createdAtMillis: Long,
+    val moderationStatus: String = "local_only"
+)
+
+@Entity(tableName = "user_profiles")
+data class UserProfileEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val description: String
+)
+
+@Entity(tableName = "profile_sensitivities", primaryKeys = ["profileId", "category"])
+data class ProfileSensitivityEntity(
+    val profileId: String,
+    val category: ContentCategory,
+    val sensitivity: Sensitivity
+)
+
+@Entity(tableName = "watchlist_items")
+data class WatchlistItemEntity(
+    @PrimaryKey val titleId: String,
+    val addedAtMillis: Long
+)
+
+class ContentLensConverters {
+    @TypeConverter fun categoryToString(value: ContentCategory): String = value.name
+    @TypeConverter fun stringToCategory(value: String): ContentCategory = ContentCategory.valueOf(value)
+    @TypeConverter fun severityToString(value: Severity): String = value.name
+    @TypeConverter fun stringToSeverity(value: String): Severity = Severity.valueOf(value)
+    @TypeConverter fun mediaTypeToString(value: MediaType): String = value.name
+    @TypeConverter fun stringToMediaType(value: String): MediaType = MediaType.valueOf(value)
+    @TypeConverter fun sensitivityToString(value: Sensitivity): String = value.name
+    @TypeConverter fun stringToSensitivity(value: String): Sensitivity = Sensitivity.valueOf(value)
+}

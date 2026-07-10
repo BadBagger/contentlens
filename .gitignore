@@ -1,0 +1,13 @@
+/.gradle/
+/.kotlin/
+/build/
+/app/build/
+/local.properties
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+*password*
+*credential*

@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.1.0-mvp`
+- Latest published release: `v0.1.1-keyboard-fix`
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -38,4 +38,8 @@ Implemented MVP:
 - `v0.1.0-mvp`: first signed APK-backed GitHub Release for the local-first ContentLens MVP.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.0-mvp`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.0-mvp.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.1.1-keyboard-fix`: fixes Search keyboard handling with explicit Search/Done dismissal, a clear-search control, IME padding, result-row keyboard dismissal, and clearer no-results copy.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.1-keyboard-fix`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.1-keyboard-fix.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`

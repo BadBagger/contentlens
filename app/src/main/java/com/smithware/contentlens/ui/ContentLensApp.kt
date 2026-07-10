@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PrivacyTip
@@ -59,10 +63,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.smithware.contentlens.data.ContentRatingEntryEntity
@@ -174,10 +184,12 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
 
 @Composable
 private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel) {
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val results = remember(state.query, state.titles) {
         state.titles.filter { it.title.contains(state.query, ignoreCase = true) || state.query.isBlank() }
     }
-    Column(Modifier.fillMaxSize().padding(18.dp)) {
+    Column(Modifier.fillMaxSize().imePadding().padding(18.dp)) {
         Header("Search", "Find local demo movies and shows, then inspect the specific content notes.")
         OutlinedTextField(
             value = state.query,
@@ -185,15 +197,44 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel) {
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             label = { Text("Search titles") },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+            trailingIcon = {
+                if (state.query.isNotBlank()) {
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = "Clear search",
+                        modifier = Modifier.clickable {
+                            viewModel.updateQuery("")
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        }
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Search
+            ),
+            keyboardActions = KeyboardActions(
+                onSearch = {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                },
+                onDone = {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+            ),
             singleLine = true
         )
         Spacer(Modifier.height(12.dp))
         if (results.isEmpty()) {
-            EmptyState("No titles yet", "Add a report locally or adjust the search text.")
+            EmptyState("No matching titles", "Try a different search or submit a local report for this title.")
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(results, key = { it.id }) { title ->
                     TitleResultRow(title, title.id == state.selectedTitleId) {
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
                         viewModel.selectTitle(title.id)
                     }
                 }

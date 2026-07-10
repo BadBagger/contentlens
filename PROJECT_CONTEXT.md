@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest local version: `v0.1.0-mvp`
+- Latest published release: `v0.1.0-mvp`
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -32,3 +32,10 @@ Implemented MVP:
 - Editable profile sensitivity UI
 - Timestamp-level entries
 - DevHub registry onboarding if ContentLens should appear in the Smithware store app
+
+## Release Notes
+
+- `v0.1.0-mvp`: first signed APK-backed GitHub Release for the local-first ContentLens MVP.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.0-mvp`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.0-mvp.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`

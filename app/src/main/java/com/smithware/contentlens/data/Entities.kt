@@ -48,6 +48,25 @@ data class ContentReportEntity(
     val moderationStatus: String = "local_only"
 )
 
+@Entity(tableName = "remote_content_reports")
+data class RemoteContentReportEntity(
+    @PrimaryKey val id: String,
+    val remoteKey: String,
+    val tmdbId: Int,
+    val mediaType: String,
+    val title: String,
+    val releaseYear: Int?,
+    val category: ContentCategory,
+    val severity: Severity,
+    val explanation: String,
+    val spoilerNote: String?,
+    val season: Int?,
+    val episode: Int?,
+    val createdAtMillis: Long,
+    val source: String = "Local user report",
+    val moderationStatus: String = "local_only"
+)
+
 @Entity(tableName = "user_profiles")
 data class UserProfileEntity(
     @PrimaryKey val id: String,

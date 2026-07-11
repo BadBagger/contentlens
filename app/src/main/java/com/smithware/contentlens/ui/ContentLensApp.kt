@@ -86,6 +86,7 @@ import coil.request.ImageRequest
 import com.smithware.contentlens.data.ContentRatingEntryEntity
 import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
+import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbCastMember
@@ -301,7 +302,12 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
                 }
             )
             is RemoteDetailUiState.Loading -> RemoteDetailLoading(detail.result, onBack = viewModel::clearRemoteDetail)
-            is RemoteDetailUiState.Loaded -> RemoteTitleDetail(detail.details, detail.imageUrlBuilder, onBack = viewModel::clearRemoteDetail)
+            is RemoteDetailUiState.Loaded -> RemoteTitleDetail(
+                detail = detail,
+                spoilerFreeMode = state.settings.spoilerFreeMode,
+                viewModel = viewModel,
+                onBack = viewModel::clearRemoteDetail
+            )
             is RemoteDetailUiState.Error -> RemoteDetailError(detail.result, detail.message, onBack = viewModel::clearRemoteDetail) {
                 viewModel.selectRemoteResult(detail.result)
             }
@@ -428,8 +434,16 @@ private fun RemoteDetailError(result: NormalizedMediaResult, message: String, on
 }
 
 @Composable
-private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageUrlBuilder, onBack: () -> Unit) {
+private fun RemoteTitleDetail(
+    detail: RemoteDetailUiState.Loaded,
+    spoilerFreeMode: Boolean,
+    viewModel: ContentLensViewModel,
+    onBack: () -> Unit
+) {
+    val details = detail.details
+    val imageUrlBuilder = detail.imageUrlBuilder
     val result = details.result
+    var showSpoilers by rememberSaveable(result.tmdbId, result.mediaType.name) { mutableStateOf(false) }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             OutlinedButton(onClick = onBack) { Text("Back to results") }
@@ -459,7 +473,18 @@ private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageU
             Text(result.overview.ifBlank { "No overview is available yet." }, color = Color(0xFF334155))
         }
         item {
-            RemoteRatingReport(details)
+            RemoteRatingReport(
+                details = details,
+                reports = detail.reports,
+                summary = detail.summary,
+                fit = detail.fit,
+                spoilerFreeMode = spoilerFreeMode,
+                showSpoilers = showSpoilers,
+                onToggleSpoilers = { showSpoilers = !showSpoilers }
+            )
+        }
+        item {
+            RemoteReportComposer(details, viewModel)
         }
         if (details.watchProviders.isNotEmpty()) {
             item {
@@ -500,7 +525,15 @@ private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageU
 }
 
 @Composable
-private fun RemoteRatingReport(details: TmdbTitleDetails) {
+private fun RemoteRatingReport(
+    details: TmdbTitleDetails,
+    reports: List<RemoteContentReportEntity>,
+    summary: com.smithware.contentlens.domain.RatingSummary,
+    fit: FitLabel,
+    spoilerFreeMode: Boolean,
+    showSpoilers: Boolean,
+    onToggleSpoilers: () -> Unit
+) {
     val certification = details.certification
     val preliminary = certificationToLensRating(certification)
     SectionTitle("Rating report")
@@ -508,37 +541,147 @@ private fun RemoteRatingReport(details: TmdbTitleDetails) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("Official: ${certification ?: "Unknown"}") })
-                AssistChip(onClick = {}, label = { Text("ContentLens: ${preliminary.label}") })
-                AssistChip(onClick = {}, label = { Text(if (certification == null) "Confidence: low" else "Confidence: certification only") })
+                AssistChip(onClick = {}, label = { Text("ContentLens: ${(if (reports.isEmpty()) preliminary else summary.rating).label}") })
+                AssistChip(onClick = {}, label = { Text(fit.label) })
+                AssistChip(onClick = {}, label = { Text(if (reports.isEmpty()) "Confidence: certification only" else "${reports.size} local reports") })
             }
-            Text(
-                ratingExplanation(certification, preliminary),
-                color = Color(0xFF334155),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                "Detailed category warnings are not verified yet for this title. Unknown content is not treated as safe.",
-                color = Color(0xFFB45309),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            SectionTitle("Category report status")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(
-                    "Language unknown",
-                    "Violence unknown",
-                    "Sexual content unknown",
-                    "Nudity unknown",
-                    "Drugs unknown",
-                    "Self-harm unknown"
-                ).forEach { label ->
-                    AssistChip(onClick = {}, label = { Text(label) })
+            if (reports.isEmpty()) {
+                Text(
+                    ratingExplanation(certification, preliminary),
+                    color = Color(0xFF334155),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    "Detailed category warnings are not verified yet for this title. Unknown content is not treated as safe.",
+                    color = Color(0xFFB45309),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                SectionTitle("Category report status")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(
+                        "Language unknown",
+                        "Violence unknown",
+                        "Sexual content unknown",
+                        "Nudity unknown",
+                        "Drugs unknown",
+                        "Self-harm unknown"
+                    ).forEach { label ->
+                        AssistChip(onClick = {}, label = { Text(label) })
+                    }
+                }
+            } else {
+                Text(
+                    "Local ContentLens reports are available for this title. These reports are stored on this device and are not official certification.",
+                    color = Color(0xFF334155),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                SectionTitle("Top warnings")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    summary.topWarnings.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                }
+                SectionTitle("Detailed breakdown")
+                RemoteReportBreakdown(reports, spoilerFreeMode, showSpoilers)
+                if (reports.any { it.spoilerNote != null }) {
+                    TextButton(onClick = onToggleSpoilers) {
+                        Text(if (showSpoilers) "Hide detailed spoilers" else "Reveal detailed spoilers")
+                    }
                 }
             }
             InfoCard(
                 "Source",
-                "TMDB provides metadata and official certification when available. ContentLens category-level reports still need verified local or community data for this exact title."
+                "TMDB provides metadata and official certification when available. ContentLens category-level reports are local user submissions until a moderation backend exists."
             )
+        }
+    }
+}
+
+@Composable
+private fun RemoteReportBreakdown(reports: List<RemoteContentReportEntity>, spoilerFreeMode: Boolean, showSpoilers: Boolean) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        reports.sortedWith(compareByDescending<RemoteContentReportEntity> { it.severity.score }.thenBy { it.category.label }).forEach { report ->
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)), shape = RoundedCornerShape(8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(report.category.label, fontWeight = FontWeight.SemiBold)
+                        Text(report.severity.label, color = SeverityColor(report.severity), fontWeight = FontWeight.SemiBold)
+                    }
+                    Text(report.explanation, color = Color(0xFF475569))
+                    val episodeText = listOfNotNull(report.season?.let { "S$it" }, report.episode?.let { "E$it" }).joinToString(" ")
+                    if (episodeText.isNotBlank()) Text(episodeText, style = MaterialTheme.typography.bodySmall, color = Color(0xFF64748B))
+                    if (!spoilerFreeMode || showSpoilers) {
+                        report.spoilerNote?.let { Text("Spoiler detail: $it", color = Color(0xFF334155), modifier = Modifier.padding(top = 4.dp)) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteReportComposer(details: TmdbTitleDetails, viewModel: ContentLensViewModel) {
+    var expanded by rememberSaveable(details.result.tmdbId, details.result.mediaType.name) { mutableStateOf(false) }
+    var category by rememberSaveable { mutableStateOf(ContentCategory.Language) }
+    var severity by rememberSaveable { mutableStateOf(Severity.Mild) }
+    var explanation by rememberSaveable { mutableStateOf("") }
+    var spoilerNote by rememberSaveable { mutableStateOf("") }
+    var season by rememberSaveable { mutableStateOf("") }
+    var episode by rememberSaveable { mutableStateOf("") }
+
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Add ContentLens report", fontWeight = FontWeight.Bold)
+                    Text("Submit a spoiler-free category note for this exact TMDB title.", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "Close" else "Add") }
+            }
+            if (expanded) {
+                EnumDropdown("Category", ContentCategory.entries, category, { it.label }) { category = it }
+                EnumDropdown("Severity", Severity.entries, severity, { it.label }) { severity = it }
+                OutlinedTextField(
+                    value = explanation,
+                    onValueChange = { explanation = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    label = { Text("Spoiler-free explanation") }
+                )
+                OutlinedTextField(
+                    value = spoilerNote,
+                    onValueChange = { spoilerNote = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    label = { Text("Detailed spoiler note optional") },
+                    leadingIcon = { Icon(Icons.Outlined.VisibilityOff, contentDescription = null) }
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(season, { season = it.filter(Char::isDigit) }, Modifier.weight(1f), label = { Text("Season") }, singleLine = true)
+                    OutlinedTextField(episode, { episode = it.filter(Char::isDigit) }, Modifier.weight(1f), label = { Text("Episode") }, singleLine = true)
+                }
+                Button(
+                    onClick = {
+                        viewModel.submitRemoteReport(
+                            details = details,
+                            category = category,
+                            severity = severity,
+                            explanation = explanation,
+                            spoilerNote = spoilerNote,
+                            season = season.toIntOrNull(),
+                            episode = episode.toIntOrNull()
+                        )
+                        explanation = ""
+                        spoilerNote = ""
+                        season = ""
+                        episode = ""
+                        expanded = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = explanation.isNotBlank()
+                ) {
+                    Text("Submit locally")
+                }
+            }
         }
     }
 }

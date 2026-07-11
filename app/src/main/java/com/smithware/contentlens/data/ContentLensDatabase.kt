@@ -9,6 +9,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -30,6 +32,12 @@ interface ContentLensDao {
 
     @Query("SELECT * FROM content_reports ORDER BY createdAtMillis DESC")
     fun observeReports(): Flow<List<ContentReportEntity>>
+
+    @Query("SELECT * FROM remote_content_reports ORDER BY createdAtMillis DESC")
+    fun observeRemoteReports(): Flow<List<RemoteContentReportEntity>>
+
+    @Query("SELECT * FROM remote_content_reports WHERE remoteKey = :remoteKey ORDER BY severity DESC, category")
+    suspend fun getRemoteReports(remoteKey: String): List<RemoteContentReportEntity>
 
     @Query("SELECT * FROM user_profiles ORDER BY name")
     fun observeProfiles(): Flow<List<UserProfileEntity>>
@@ -59,6 +67,9 @@ interface ContentLensDao {
     suspend fun upsertReport(item: ContentReportEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertRemoteReport(item: RemoteContentReportEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWatchlistItem(item: WatchlistItemEntity)
 
     @Query("DELETE FROM watchlist_items WHERE titleId = :titleId")
@@ -73,11 +84,12 @@ interface ContentLensDao {
         MediaTitleEntity::class,
         ContentRatingEntryEntity::class,
         ContentReportEntity::class,
+        RemoteContentReportEntity::class,
         UserProfileEntity::class,
         ProfileSensitivityEntity::class,
         WatchlistItemEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(ContentLensConverters::class)
@@ -93,7 +105,36 @@ abstract class ContentLensDatabase : RoomDatabase() {
                     context.applicationContext,
                     ContentLensDatabase::class.java,
                     "contentlens.db"
-                ).build().also { instance = it }
+                ).addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS remote_content_reports (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        remoteKey TEXT NOT NULL,
+                        tmdbId INTEGER NOT NULL,
+                        mediaType TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        releaseYear INTEGER,
+                        category TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        explanation TEXT NOT NULL,
+                        spoilerNote TEXT,
+                        season INTEGER,
+                        episode INTEGER,
+                        createdAtMillis INTEGER NOT NULL,
+                        source TEXT NOT NULL DEFAULT 'Local user report',
+                        moderationStatus TEXT NOT NULL DEFAULT 'local_only'
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_content_reports_remoteKey ON remote_content_reports(remoteKey)")
+            }
+        }
     }
 }

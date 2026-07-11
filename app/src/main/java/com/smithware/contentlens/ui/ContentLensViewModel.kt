@@ -12,6 +12,7 @@ import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.LocalContentReportRepository
 import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.ProfileSensitivityEntity
+import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.SettingsStore
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.data.WatchlistItemEntity
@@ -21,6 +22,7 @@ import com.smithware.contentlens.data.tmdb.TmdbClient
 import com.smithware.contentlens.data.tmdb.TmdbImageConfiguration
 import com.smithware.contentlens.data.tmdb.TmdbSearchError
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
+import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
 import com.smithware.contentlens.domain.LensRating
@@ -56,6 +58,7 @@ data class AppUiState(
     val sensitivities: List<ProfileSensitivityEntity> = emptyList(),
     val watchlist: List<WatchlistItemEntity> = emptyList(),
     val reports: List<ContentReportEntity> = emptyList(),
+    val remoteReports: List<RemoteContentReportEntity> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val query: String = "",
     val remoteSearch: RemoteSearchUiState = RemoteSearchUiState.Initial,
@@ -88,7 +91,10 @@ sealed class RemoteDetailUiState {
     data class Loading(val result: NormalizedMediaResult) : RemoteDetailUiState()
     data class Loaded(
         val details: TmdbTitleDetails,
-        val imageUrlBuilder: ImageUrlBuilder
+        val imageUrlBuilder: ImageUrlBuilder,
+        val reports: List<RemoteContentReportEntity> = emptyList(),
+        val summary: RatingSummary = RatingSummary(LensRating.InsufficientData, emptyList(), 0),
+        val fit: FitLabel = FitLabel.InsufficientData
     ) : RemoteDetailUiState()
     data class Error(val result: NormalizedMediaResult, val message: String) : RemoteDetailUiState()
 }
@@ -114,14 +120,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     init {
         viewModelScope.launch {
+            val reportBase = combine(dao.observeReports(), dao.observeRemoteReports()) { reports, remoteReports ->
+                ReportBase(reports, remoteReports)
+            }
             val storedBase = combine(
                 dao.observeTitles(),
                 dao.observeProfiles(),
                 dao.observeWatchlistItems(),
-                dao.observeReports(),
+                reportBase,
                 settingsStore.settings
             ) { titles, profiles, watchlist, reports, settings ->
-                StoredBase(titles, profiles, watchlist, reports, settings)
+                StoredBase(titles, profiles, watchlist, reports.reports, reports.remoteReports, settings)
             }
             val storedState = combine(storedBase, remoteSearch) { stored, searchState ->
                 StoredState(
@@ -129,6 +138,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     profiles = stored.profiles,
                     watchlist = stored.watchlist,
                     reports = stored.reports,
+                    remoteReports = stored.remoteReports,
                     settings = stored.settings,
                     remoteSearch = searchState
                 )
@@ -147,6 +157,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     profiles = stored.profiles,
                     watchlist = stored.watchlist,
                     reports = stored.reports,
+                    remoteReports = stored.remoteReports,
                     settings = stored.settings,
                     selectedTitleId = control.selectedTitleId,
                     activeProfileId = activeProfileId,
@@ -177,6 +188,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         sensitivities = sensitivities,
                         watchlist = base.watchlist,
                         reports = base.reports,
+                        remoteReports = base.remoteReports,
                         settings = base.settings,
                         query = base.query,
                         remoteSearch = base.remoteSearch,
@@ -199,7 +211,15 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             remoteDetail.value = RemoteDetailUiState.Loading(result)
             try {
                 val (details, config) = tmdbClient.details(result)
-                remoteDetail.value = RemoteDetailUiState.Loaded(details, ImageUrlBuilder(config))
+                val reports = dao.getRemoteReports(remoteMediaKey(result.tmdbId, result.mediaType))
+                val entries = reports.map { it.toEntry() }
+                remoteDetail.value = RemoteDetailUiState.Loaded(
+                    details = details,
+                    imageUrlBuilder = ImageUrlBuilder(config),
+                    reports = reports,
+                    summary = ratingEngine.summarize(entries),
+                    fit = fitEngine.evaluate(entries, uiState.value.sensitivities)
+                )
             } catch (error: Throwable) {
                 remoteDetail.value = RemoteDetailUiState.Error(result, error.toSearchUiState(result.title).let {
                     when (it) {
@@ -321,6 +341,47 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    fun submitRemoteReport(
+        details: TmdbTitleDetails,
+        category: ContentCategory,
+        severity: Severity,
+        explanation: String,
+        spoilerNote: String?,
+        season: Int?,
+        episode: Int?
+    ) {
+        if (explanation.isBlank()) return
+        viewModelScope.launch {
+            val result = details.result
+            val report = RemoteContentReportEntity(
+                id = UUID.randomUUID().toString(),
+                remoteKey = remoteMediaKey(result.tmdbId, result.mediaType),
+                tmdbId = result.tmdbId,
+                mediaType = result.mediaType.name,
+                title = result.title,
+                releaseYear = result.releaseYear,
+                category = category,
+                severity = severity,
+                explanation = explanation.trim(),
+                spoilerNote = spoilerNote?.trim()?.ifBlank { null },
+                season = season,
+                episode = episode,
+                createdAtMillis = System.currentTimeMillis()
+            )
+            dao.upsertRemoteReport(report)
+            val loaded = remoteDetail.value as? RemoteDetailUiState.Loaded
+            if (loaded != null && loaded.details.result.tmdbId == result.tmdbId && loaded.details.result.mediaType == result.mediaType) {
+                val reports = (listOf(report) + loaded.reports).distinctBy { it.id }
+                val entries = reports.map { it.toEntry() }
+                remoteDetail.value = loaded.copy(
+                    reports = reports,
+                    summary = ratingEngine.summarize(entries),
+                    fit = fitEngine.evaluate(entries, uiState.value.sensitivities)
+                )
+            }
+        }
+    }
+
     fun setSpoilerFreeMode(enabled: Boolean) {
         viewModelScope.launch { settingsStore.setSpoilerFreeMode(enabled) }
     }
@@ -338,6 +399,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val profiles: List<UserProfileEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
+        val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
         val selectedTitleId: String?,
         val activeProfileId: String?,
@@ -351,6 +413,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val profiles: List<UserProfileEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
+        val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
         val remoteSearch: RemoteSearchUiState
     )
@@ -360,11 +423,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val remoteDetail: RemoteDetailUiState
     )
 
+    private data class ReportBase(
+        val reports: List<ContentReportEntity>,
+        val remoteReports: List<RemoteContentReportEntity>
+    )
+
     private data class StoredBase(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
+        val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings
     )
 
@@ -395,4 +464,18 @@ class ContentLensViewModelFactory(private val application: Application) : ViewMo
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         return ContentLensViewModel(application) as T
     }
+}
+
+private fun RemoteContentReportEntity.toEntry(): ContentRatingEntryEntity {
+    return ContentRatingEntryEntity(
+        id = "remote-$id",
+        titleId = remoteKey,
+        category = category,
+        severity = severity,
+        explanation = explanation,
+        spoilerNote = spoilerNote,
+        season = season,
+        episode = episode,
+        source = source
+    )
 }

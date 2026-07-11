@@ -59,4 +59,6 @@ Implemented MVP:
 - Implemented a TMDB client that calls `/search/movie` and `/search/tv` concurrently, URL-encodes search text, uses bearer-token auth from local build configuration, fetches TMDB image configuration, and distinguishes offline, authentication/configuration, parsing, server, no-results, loading, waiting, and initial states.
 - Implemented normalized search results with `tmdbId`, media type, title/original title, overview, poster/backdrop paths, release date/year, genres, popularity, vote data, adult flag, and original language.
 - Implemented centralized image URL construction and poster-card search results with Coil image loading, crossfade, memory/disk cache keys, fixed poster aspect ratio, and fallback artwork.
-- Added unit tests for movie normalization, TV normalization, missing title handling, and image URL construction.
+- Added unit tests for movie normalization, TV normalization, missing title handling, image URL construction, missing token handling, auth/server error handling, and URL-encoded search requests.
+- Remote search state is now held separately from the Room-backed app state so pagination appends are not lost when local profiles, reports, settings, or watchlist data emit updates.
+- Search results and Settings include TMDB source attribution. Developer-safe logging reports status codes, endpoint paths, and parsing/network failures without logging API tokens.

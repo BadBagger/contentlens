@@ -1,6 +1,5 @@
 package com.smithware.contentlens.data.tmdb
 
-import android.util.Log
 import com.smithware.contentlens.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -35,7 +34,7 @@ class TmdbClient(
         try {
             TmdbNormalizer.parseImageConfiguration(get("/configuration"))
         } catch (error: JSONException) {
-            Log.w(TAG, "TMDB image configuration parse failed: ${error.message}")
+            SafeLog.warn(TAG, "TMDB image configuration parse failed: ${error.message}")
             throw TmdbSearchError.Parsing(error)
         }
     }
@@ -51,7 +50,7 @@ class TmdbClient(
         try {
             TmdbNormalizer.parseSearchPage(get(path), mediaType)
         } catch (error: JSONException) {
-            Log.w(TAG, "TMDB ${mediaType.name} search parse failed: ${error.message}")
+            SafeLog.warn(TAG, "TMDB ${mediaType.name} search parse failed: ${error.message}")
             throw TmdbSearchError.Parsing(error)
         }
     }
@@ -83,21 +82,21 @@ class TmdbClient(
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
                 val snippet = body.take(180)
-                Log.w(TAG, "TMDB request failed status=$status path=${path.substringBefore('?')} body=$snippet")
+                SafeLog.warn(TAG, "TMDB request failed status=$status path=${path.substringBefore('?')} body=$snippet")
                 if (status == 401 || status == 403) {
                     throw TmdbSearchError.Authentication(status, snippet)
                 }
                 throw TmdbSearchError.Server(status, snippet)
             }
-            Log.d(TAG, "TMDB request ok status=$status path=${path.substringBefore('?')}")
+            SafeLog.debug(TAG, "TMDB request ok status=$status path=${path.substringBefore('?')}")
             body
         } catch (error: TmdbSearchError) {
             throw error
         } catch (error: SocketTimeoutException) {
-            Log.w(TAG, "TMDB request timed out path=${path.substringBefore('?')}")
+            SafeLog.warn(TAG, "TMDB request timed out path=${path.substringBefore('?')}")
             throw TmdbSearchError.Offline(error)
         } catch (error: IOException) {
-            Log.w(TAG, "TMDB network failure path=${path.substringBefore('?')} message=${error.message}")
+            SafeLog.warn(TAG, "TMDB network failure path=${path.substringBefore('?')} message=${error.message}")
             throw TmdbSearchError.Offline(error)
         } finally {
             connection.disconnect()

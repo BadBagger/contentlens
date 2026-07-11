@@ -304,11 +304,18 @@ private fun RemoteSearchContent(
         is RemoteSearchUiState.ServerError -> RetryState("Search error", state.message, onRetry)
         is RemoteSearchUiState.Results -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
-                Text(
-                    "${state.totalResults} results from TMDB",
-                    color = Color(0xFF64748B),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "${state.totalResults} results from TMDB",
+                        color = Color(0xFF64748B),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        "Movie and TV metadata and images are provided by TMDB.",
+                        color = Color(0xFF64748B),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
             items(state.results, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
                 RemotePosterResultCard(result, state.imageUrlBuilder)
@@ -587,6 +594,7 @@ private fun SettingsScreen(state: AppUiState, viewModel: ContentLensViewModel) {
         InfoCard("Local-first storage", "Titles, profiles, watchlist items, settings, and reports are stored on this device for the MVP. No login or backend is required.")
         SectionTitle("About ContentLens")
         InfoCard("Informational ratings", "ContentLens ratings are informational and based on content reports, not official certification.")
+        InfoCard("Search data source", "Movie and TV search metadata and images are provided by TMDB when a local TMDB read access token is configured.")
     }
 }
 

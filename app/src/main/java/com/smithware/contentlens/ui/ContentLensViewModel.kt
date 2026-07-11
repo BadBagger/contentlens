@@ -30,13 +30,12 @@ import com.smithware.contentlens.domain.Severity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -94,42 +93,13 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val selectedTitleId = MutableStateFlow<String?>(null)
     private val selectedProfileId = MutableStateFlow<String?>(null)
     private val query = MutableStateFlow("")
-    private val searchRetryNonce = MutableStateFlow(0)
+    private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
+    private var remoteSearchJob: Job? = null
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
     init {
         viewModelScope.launch {
-            val remoteSearch = combine(query, searchRetryNonce) { search, _ -> search }
-                .map { it.trim() }
-                .flatMapLatest { trimmed ->
-                    when {
-                        trimmed.isBlank() -> flowOf(RemoteSearchUiState.Initial)
-                        trimmed.length < 2 -> flowOf(RemoteSearchUiState.Waiting(trimmed))
-                        else -> flow {
-                            emit(RemoteSearchUiState.Waiting(trimmed))
-                            kotlinx.coroutines.delay(400)
-                            emit(RemoteSearchUiState.Loading(trimmed))
-                            val (page, config) = tmdbClient.searchAll(trimmed, page = 1)
-                            if (page.results.isEmpty()) {
-                                emit(RemoteSearchUiState.NoResults(trimmed))
-                            } else {
-                                emit(
-                                    RemoteSearchUiState.Results(
-                                        query = trimmed,
-                                        results = page.results,
-                                        imageUrlBuilder = ImageUrlBuilder(config),
-                                        page = page.page,
-                                        totalPages = page.totalPages,
-                                        totalResults = page.totalResults
-                                    )
-                                )
-                            }
-                        }.catch { error ->
-                            emit(error.toSearchUiState(trimmed))
-                        }
-                    }
-                }
             val storedBase = combine(
                 dao.observeTitles(),
                 dao.observeProfiles(),
@@ -208,32 +178,64 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     fun updateQuery(value: String) {
         query.value = value
+        startRemoteSearch(value)
     }
 
     fun retrySearch() {
-        searchRetryNonce.value = searchRetryNonce.value + 1
+        startRemoteSearch(query.value, skipDebounce = true)
     }
 
     fun loadMoreRemoteResults() {
-        val current = uiState.value.remoteSearch as? RemoteSearchUiState.Results ?: return
+        val current = remoteSearch.value as? RemoteSearchUiState.Results ?: return
         if (!current.hasMore || current.isLoadingMore) return
         viewModelScope.launch {
-            _uiState.value = uiState.value.copy(remoteSearch = current.copy(isLoadingMore = true))
+            remoteSearch.value = current.copy(isLoadingMore = true)
             try {
                 val (page, config) = tmdbClient.searchAll(current.query, page = current.page + 1)
                 val merged = (current.results + page.results).distinctBy { it.mediaType to it.tmdbId }
-                _uiState.value = uiState.value.copy(
-                    remoteSearch = current.copy(
-                        results = merged,
-                        imageUrlBuilder = ImageUrlBuilder(config),
-                        page = page.page,
-                        totalPages = page.totalPages,
-                        totalResults = page.totalResults,
-                        isLoadingMore = false
-                    )
+                remoteSearch.value = current.copy(
+                    results = merged,
+                    imageUrlBuilder = ImageUrlBuilder(config),
+                    page = page.page,
+                    totalPages = page.totalPages,
+                    totalResults = page.totalResults,
+                    isLoadingMore = false
                 )
             } catch (error: Throwable) {
-                _uiState.value = uiState.value.copy(remoteSearch = error.toSearchUiState(current.query))
+                remoteSearch.value = error.toSearchUiState(current.query)
+            }
+        }
+    }
+
+    private fun startRemoteSearch(rawQuery: String, skipDebounce: Boolean = false) {
+        val trimmed = rawQuery.trim()
+        remoteSearchJob?.cancel()
+        remoteSearchJob = viewModelScope.launch {
+            when {
+                trimmed.isBlank() -> remoteSearch.value = RemoteSearchUiState.Initial
+                trimmed.length < 2 -> remoteSearch.value = RemoteSearchUiState.Waiting(trimmed)
+                else -> {
+                    remoteSearch.value = RemoteSearchUiState.Waiting(trimmed)
+                    if (!skipDebounce) delay(400)
+                    remoteSearch.value = RemoteSearchUiState.Loading(trimmed)
+                    try {
+                        val (page, config) = tmdbClient.searchAll(trimmed, page = 1)
+                        remoteSearch.value = if (page.results.isEmpty()) {
+                            RemoteSearchUiState.NoResults(trimmed)
+                        } else {
+                            RemoteSearchUiState.Results(
+                                query = trimmed,
+                                results = page.results,
+                                imageUrlBuilder = ImageUrlBuilder(config),
+                                page = page.page,
+                                totalPages = page.totalPages,
+                                totalResults = page.totalResults
+                            )
+                        }
+                    } catch (error: Throwable) {
+                        remoteSearch.value = error.toSearchUiState(trimmed)
+                    }
+                }
             }
         }
     }

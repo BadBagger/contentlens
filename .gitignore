@@ -2,6 +2,8 @@
 /.kotlin/
 /build/
 /app/build/
+/node_modules/
+/.next/
 /local.properties
 *.apk
 *.aab

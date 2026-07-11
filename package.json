@@ -1,0 +1,17 @@
+{
+  "name": "contentlens-proxy-site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test:backend": "npm --prefix backend/contentlens-api test"
+  },
+  "dependencies": {
+    "next": "^16.2.10",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  }
+}

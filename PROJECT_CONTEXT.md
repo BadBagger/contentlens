@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.8-instant-home`
+- Latest published release: `v0.3.9-featured-feed`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing. Development is preparing `v0.3.9-featured-feed` to preload Home safety summaries through one cached backend featured feed.
 - Storage: local Room database plus DataStore settings
 - Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
@@ -122,6 +122,9 @@ Implemented MVP:
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.8-instant-home.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 - `v0.3.9-featured-feed`: adds a cached `/v1/featured` ContentLens API feed for the curated Home shelves, lets Android hydrate all preset rating summaries from one startup request, treats feed items without provider matches as explicit no-match states, and preserves bundled posters/metadata for instant first paint.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.9-featured-feed`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.9-featured-feed.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes
 

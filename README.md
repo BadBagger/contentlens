@@ -17,3 +17,15 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 ```
 
 Release builds require an ignored local `keystore.properties` file based on `keystore.properties.example`.
+
+## TMDB Search Configuration
+
+Remote movie and TV search uses TMDB. Add a TMDB API Read Access Token locally before building an APK that should return real media results:
+
+```properties
+tmdbReadAccessToken=YOUR_TMDB_READ_ACCESS_TOKEN
+```
+
+The token can be stored in ignored `local.properties` or provided as the `TMDB_READ_ACCESS_TOKEN` environment variable. Do not commit API tokens.
+
+Without this configuration, the app builds and shows a Search not configured state instead of silently returning no results.

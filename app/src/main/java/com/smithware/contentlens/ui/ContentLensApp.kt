@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -63,10 +65,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -76,9 +81,13 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.smithware.contentlens.data.ContentRatingEntryEntity
 import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
+import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
+import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
@@ -200,9 +209,6 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
         keyboardController?.hide()
     }
     val searchText = searchField.text
-    val results = remember(searchText, state.titles) {
-        state.titles.filter { it.title.contains(searchText, ignoreCase = true) || searchText.isBlank() }
-    }
     Column(Modifier.fillMaxSize().imePadding().padding(18.dp)) {
         Header("Search", "Find local demo movies and shows, then inspect the specific content notes.")
         OutlinedTextField(
@@ -262,30 +268,176 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
             }
         }
         Spacer(Modifier.height(12.dp))
-        if (results.isEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                EmptyState("No matching titles", "Try a different search or submit a local report for this title.")
-                TextButton(
-                    onClick = {
-                        closeKeyboard()
-                        searchField = TextFieldValue("")
-                        viewModel.updateQuery("")
+        RemoteSearchContent(
+            state = state.remoteSearch,
+            onRetry = {
+                closeKeyboard()
+                viewModel.retrySearch()
+            },
+            onClear = {
+                closeKeyboard()
+                searchField = TextFieldValue("")
+                viewModel.updateQuery("")
+            },
+            onLoadMore = viewModel::loadMoreRemoteResults
+        )
+    }
+}
+
+@Composable
+private fun RemoteSearchContent(
+    state: RemoteSearchUiState,
+    onRetry: () -> Unit,
+    onClear: () -> Unit,
+    onLoadMore: () -> Unit
+) {
+    when (state) {
+        RemoteSearchUiState.Initial -> EmptyState("Search movies and TV", "Type at least two characters to search TMDB for movies and shows.")
+        is RemoteSearchUiState.Waiting -> EmptyState("Ready to search", "Keep typing or tap Search. Requests wait briefly so stale searches are cancelled.")
+        is RemoteSearchUiState.Loading -> LoadingState("Searching TMDB", "Looking for movies and TV shows with artwork.")
+        is RemoteSearchUiState.NoResults -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            EmptyState("No matching titles", "TMDB did not return movies or shows for \"${state.query}\".")
+            TextButton(onClick = onClear) { Text("Clear search") }
+        }
+        is RemoteSearchUiState.Offline -> RetryState("Offline", "ContentLens could not reach TMDB. Check your connection and try again.", onRetry)
+        is RemoteSearchUiState.ConfigurationError -> RetryState("Search not configured", state.message, onRetry)
+        is RemoteSearchUiState.ServerError -> RetryState("Search error", state.message, onRetry)
+        is RemoteSearchUiState.Results -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text(
+                    "${state.totalResults} results from TMDB",
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            items(state.results, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
+                RemotePosterResultCard(result, state.imageUrlBuilder)
+            }
+            if (state.hasMore) {
+                item {
+                    Button(
+                        onClick = onLoadMore,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.isLoadingMore
+                    ) {
+                        if (state.isLoadingMore) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(if (state.isLoadingMore) "Loading more" else "Load more")
                     }
-                ) {
-                    Text("Clear search")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilder: ImageUrlBuilder) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top) {
+            PosterArtwork(
+                url = imageUrlBuilder.poster(result.posterPath),
+                contentDescription = "Poster for ${result.title}",
+                modifier = Modifier.width(92.dp)
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        result.title,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    AssistChip(onClick = {}, label = { Text(result.mediaType.label) })
+                }
+                Text(
+                    listOfNotNull(result.releaseYear?.toString(), "TMDB ${String.format("%.1f", result.voteAverage)}").joinToString(" • "),
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    result.overview.ifBlank { "No overview is available yet." },
+                    color = Color(0xFF334155),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssistChip(onClick = {}, label = { Text("Compatibility pending") })
+                    AssistChip(onClick = {}, label = { Text("Match: title search") })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterArtwork(url: String?, contentDescription: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var failed by remember(url) { mutableStateOf(false) }
+    Box(
+        modifier = modifier
+            .aspectRatio(2f / 3f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFE2E8F0)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (url == null || failed) {
+            MissingPosterPlaceholder()
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(results, key = { it.id }) { title ->
-                    TitleResultRow(title, title.id == state.selectedTitleId) {
-                        closeKeyboard()
-                        viewModel.selectTitle(title.id)
-                    }
-                }
-                item {
-                    state.selectedTitle?.let { TitleDetailCard(it, state, viewModel) }
-                }
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .diskCacheKey(url)
+                    .memoryCacheKey(url)
+                    .build(),
+                contentDescription = contentDescription,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                onError = { failed = true }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MissingPosterPlaceholder() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFFCBD5E1), Color(0xFF94A3B8)))),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(Icons.Outlined.PrivacyTip, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+    }
+}
+
+@Composable
+private fun LoadingState(title: String, body: String) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(body, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RetryState(title: String, body: String, onRetry: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(body, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = onRetry) {
+                Text("Retry")
             }
         }
     }

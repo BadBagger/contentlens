@@ -1,0 +1,110 @@
+package com.smithware.contentlens.data.tmdb
+
+import android.util.Log
+import com.smithware.contentlens.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import org.json.JSONException
+import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URL
+import java.net.URLEncoder
+
+class TmdbClient(
+    private val readAccessToken: String = BuildConfig.TMDB_READ_ACCESS_TOKEN,
+    private val baseUrl: String = "https://api.themoviedb.org/3"
+) {
+    suspend fun searchAll(query: String, page: Int = 1): Pair<TmdbSearchPage, TmdbImageConfiguration> {
+        val trimmed = query.trim()
+        if (readAccessToken.isBlank()) throw TmdbSearchError.MissingToken()
+        return coroutineScope {
+            val movie = async { search(RemoteMediaType.Movie, trimmed, page) }
+            val tv = async { search(RemoteMediaType.Tv, trimmed, page) }
+            val config = async { configuration() }
+            val moviePage = movie.await()
+            val tvPage = tv.await()
+            val merged = merge(moviePage, tvPage)
+            merged to config.await()
+        }
+    }
+
+    suspend fun configuration(): TmdbImageConfiguration = withContext(Dispatchers.IO) {
+        try {
+            TmdbNormalizer.parseImageConfiguration(get("/configuration"))
+        } catch (error: JSONException) {
+            Log.w(TAG, "TMDB image configuration parse failed: ${error.message}")
+            throw TmdbSearchError.Parsing(error)
+        }
+    }
+
+    suspend fun search(mediaType: RemoteMediaType, query: String, page: Int = 1): TmdbSearchPage = withContext(Dispatchers.IO) {
+        val endpoint = when (mediaType) {
+            RemoteMediaType.Movie -> "/search/movie"
+            RemoteMediaType.Tv -> "/search/tv"
+        }
+        val encodedQuery = URLEncoder.encode(query, Charsets.UTF_8.name())
+        val safePage = page.coerceAtLeast(1)
+        val path = "$endpoint?query=$encodedQuery&page=$safePage&include_adult=false&language=en-US"
+        try {
+            TmdbNormalizer.parseSearchPage(get(path), mediaType)
+        } catch (error: JSONException) {
+            Log.w(TAG, "TMDB ${mediaType.name} search parse failed: ${error.message}")
+            throw TmdbSearchError.Parsing(error)
+        }
+    }
+
+    private fun merge(movie: TmdbSearchPage, tv: TmdbSearchPage): TmdbSearchPage {
+        val mergedResults = (movie.results + tv.results)
+            .distinctBy { it.mediaType to it.tmdbId }
+            .sortedWith(compareByDescending<NormalizedMediaResult> { it.popularity }.thenByDescending { it.voteCount })
+        return TmdbSearchPage(
+            results = mergedResults,
+            page = minOf(movie.page, tv.page),
+            totalPages = maxOf(movie.totalPages, tv.totalPages),
+            totalResults = movie.totalResults + tv.totalResults
+        )
+    }
+
+    private fun get(path: String): String {
+        val url = URL(baseUrl.trimEnd('/') + path)
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 10_000
+            readTimeout = 15_000
+            setRequestProperty("Authorization", "Bearer $readAccessToken")
+            setRequestProperty("Accept", "application/json")
+        }
+        return try {
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val snippet = body.take(180)
+                Log.w(TAG, "TMDB request failed status=$status path=${path.substringBefore('?')} body=$snippet")
+                if (status == 401 || status == 403) {
+                    throw TmdbSearchError.Authentication(status, snippet)
+                }
+                throw TmdbSearchError.Server(status, snippet)
+            }
+            Log.d(TAG, "TMDB request ok status=$status path=${path.substringBefore('?')}")
+            body
+        } catch (error: TmdbSearchError) {
+            throw error
+        } catch (error: SocketTimeoutException) {
+            Log.w(TAG, "TMDB request timed out path=${path.substringBefore('?')}")
+            throw TmdbSearchError.Offline(error)
+        } catch (error: IOException) {
+            Log.w(TAG, "TMDB network failure path=${path.substringBefore('?')} message=${error.message}")
+            throw TmdbSearchError.Offline(error)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private companion object {
+        const val TAG = "TmdbClient"
+    }
+}

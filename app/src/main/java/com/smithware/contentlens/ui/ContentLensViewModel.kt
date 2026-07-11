@@ -164,7 +164,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val fitEngine = LocalPersonalFitEngine()
     private val tmdbClient = TmdbClient()
     private val safetySource = ConfiguredContentSafetySource()
-    private val featuredFeedClient = FeaturedFeedClient()
+    private val featuredFeedClient = FeaturedFeedClient(application.applicationContext)
 
     private val selectedTitleId = MutableStateFlow<String?>(null)
     private val selectedProfileId = MutableStateFlow<String?>(null)

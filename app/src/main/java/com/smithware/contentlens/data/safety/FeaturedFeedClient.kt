@@ -1,5 +1,6 @@
 package com.smithware.contentlens.data.safety
 
+import android.content.Context
 import com.smithware.contentlens.BuildConfig
 import com.smithware.contentlens.data.tmdb.RemoteMediaType
 import com.smithware.contentlens.data.tmdb.SafeLog
@@ -13,12 +14,20 @@ import java.net.SocketTimeoutException
 import java.net.URL
 
 class FeaturedFeedClient(
+    context: Context? = null,
     private val baseUrl: String = BuildConfig.CONTENTLENS_API_BASE_URL
 ) {
+    private val cacheFile = context?.applicationContext?.filesDir?.resolve(CACHE_FILE_NAME)
+
     suspend fun safetyStates(): Map<String, ExternalSafetyState> = withContext(Dispatchers.IO) {
+        val cachedStates = readCachedStates()
+        if (cachedStates.isNotEmpty()) return@withContext cachedStates
+
         if (baseUrl.isBlank()) return@withContext emptyMap()
         try {
-            parseFeatured(get("/v1/featured"))
+            val body = get("/v1/featured")
+            writeCachedFeed(body)
+            parseFeatured(body)
         } catch (error: Exception) {
             SafeLog.warn(TAG, "Featured feed unavailable: ${error.message}")
             emptyMap()
@@ -51,6 +60,27 @@ class FeaturedFeedClient(
         return states
     }
 
+    private fun readCachedStates(): Map<String, ExternalSafetyState> {
+        val file = cacheFile ?: return emptyMap()
+        if (!file.exists() || file.length() <= 0L) return emptyMap()
+        if (System.currentTimeMillis() - file.lastModified() > FEATURED_CACHE_MAX_AGE_MS) return emptyMap()
+        return try {
+            parseFeatured(file.readText())
+        } catch (error: Exception) {
+            SafeLog.warn(TAG, "Cached featured feed could not be read: ${error.message}")
+            emptyMap()
+        }
+    }
+
+    private fun writeCachedFeed(body: String) {
+        val file = cacheFile ?: return
+        try {
+            file.writeText(body)
+        } catch (error: Exception) {
+            SafeLog.warn(TAG, "Cached featured feed could not be written: ${error.message}")
+        }
+    }
+
     private fun get(path: String): String {
         val url = URL(baseUrl.trimEnd('/') + path)
         val connection = (url.openConnection() as HttpURLConnection).apply {
@@ -74,5 +104,7 @@ class FeaturedFeedClient(
 
     private companion object {
         const val TAG = "FeaturedFeed"
+        const val CACHE_FILE_NAME = "featured-feed-v1.json"
+        const val FEATURED_CACHE_MAX_AGE_MS = 7L * 24L * 60L * 60L * 1000L
     }
 }

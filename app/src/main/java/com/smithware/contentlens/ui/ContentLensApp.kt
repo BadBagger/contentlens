@@ -202,9 +202,9 @@ private fun HomeScreen(
             }
         }
         item {
-            SectionTitle("Quick picks")
+            SectionTitle("Featured shelves")
             Text(
-                "Curated shelves open instantly. Rating summaries update in the background and are reused across the app.",
+                "Start with a shelf below. Posters open instantly; safety summaries update in the background and are reused across the app.",
                 color = Color(0xFF64748B),
                 style = MaterialTheme.typography.bodySmall
             )
@@ -305,7 +305,7 @@ private fun DiscoveryPosterCard(
 @Composable
 private fun CompactSafetyText(safety: ExternalSafetyState?) {
     val label = when (safety) {
-        null -> "Safety queued"
+        null -> "Safety loading"
         ExternalSafetyState.Loading -> "Checking safety"
         is ExternalSafetyState.Loaded -> {
             val top = safety.report.entries.maxByOrNull { it.severity.score }

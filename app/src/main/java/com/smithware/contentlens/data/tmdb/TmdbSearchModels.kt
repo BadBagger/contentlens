@@ -43,7 +43,13 @@ data class TmdbTitleDetails(
     val certification: String?,
     val cast: List<TmdbCastMember>,
     val similar: List<NormalizedMediaResult>,
-    val watchProviders: List<String>
+    val watchProviders: List<TmdbWatchProvider>
+)
+
+data class TmdbWatchProvider(
+    val id: Int,
+    val name: String,
+    val logoPath: String?
 )
 
 data class TmdbCastMember(

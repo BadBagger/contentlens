@@ -104,7 +104,7 @@ object TmdbNormalizer {
             certification = certification,
             cast = root.optJSONObject("credits").optCast(),
             similar = root.optJSONObject("similar").optResults(RemoteMediaType.Movie),
-            watchProviders = root.optJSONObject("watch/providers").optUsProviderNames()
+            watchProviders = root.optJSONObject("watch/providers").optUsProviders()
         )
     }
 
@@ -127,7 +127,7 @@ object TmdbNormalizer {
             certification = contentRatings,
             cast = root.optJSONObject("credits").optCast(),
             similar = root.optJSONObject("similar").optResults(RemoteMediaType.Tv),
-            watchProviders = root.optJSONObject("watch/providers").optUsProviderNames()
+            watchProviders = root.optJSONObject("watch/providers").optUsProviders()
         )
     }
 }
@@ -211,16 +211,25 @@ private fun JSONArray.firstCertification(): String? {
     return null
 }
 
-private fun JSONObject?.optUsProviderNames(): List<String> {
+private fun JSONObject?.optUsProviders(): List<TmdbWatchProvider> {
     val us = this?.optJSONObject("results")?.optJSONObject("US") ?: return emptyList()
     val arrays = listOf("flatrate", "free", "ads", "rent", "buy")
     return arrays.flatMap { key ->
         val array = us.optJSONArray(key) ?: return@flatMap emptyList()
         buildList {
             for (index in 0 until array.length()) {
-                val providerName = array.optJSONObject(index)?.optString("provider_name").orEmpty()
-                if (providerName.isNotBlank()) add(providerName)
+                val provider = array.optJSONObject(index) ?: continue
+                val providerName = provider.optString("provider_name")
+                if (providerName.isNotBlank()) {
+                    add(
+                        TmdbWatchProvider(
+                            id = provider.optInt("provider_id", 0),
+                            name = providerName,
+                            logoPath = provider.optNullableString("logo_path")
+                        )
+                    )
+                }
             }
         }
-    }.distinct().take(8)
+    }.distinctBy { it.id.takeIf { id -> id != 0 }?.toString() ?: it.name }.take(8)
 }

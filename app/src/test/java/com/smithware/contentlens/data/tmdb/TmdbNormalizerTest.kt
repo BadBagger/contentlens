@@ -96,7 +96,7 @@ class TmdbNormalizerTest {
               },
               "credits": {"cast": [{"id": 10, "name": "Auli'i Cravalho", "character": "Moana", "profile_path": "/profile.jpg"}]},
               "similar": {"results": [{"id": 2, "title": "Moana 2", "release_date": "2024-11-27"}]},
-              "watch/providers": {"results": {"US": {"flatrate": [{"provider_name": "Disney Plus"}]}}}
+              "watch/providers": {"results": {"US": {"flatrate": [{"provider_id": 337, "provider_name": "Disney Plus", "logo_path": "/logo.jpg"}]}}}
             }
             """.trimIndent()
         )
@@ -107,7 +107,8 @@ class TmdbNormalizerTest {
         assertEquals(listOf("Animation"), details.genres)
         assertEquals("Auli'i Cravalho", details.cast.single().name)
         assertEquals("Moana 2", details.similar.single().title)
-        assertEquals(listOf("Disney Plus"), details.watchProviders)
+        assertEquals("Disney Plus", details.watchProviders.single().name)
+        assertEquals("/logo.jpg", details.watchProviders.single().logoPath)
     }
 
     @Test

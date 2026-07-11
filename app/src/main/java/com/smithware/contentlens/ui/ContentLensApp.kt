@@ -2,6 +2,7 @@ package com.smithware.contentlens.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,14 +27,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.LocalMovies
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.PrivacyTip
+import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.outlined.Tv
 import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -54,6 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -94,6 +102,7 @@ import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbCastMember
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
+import com.smithware.contentlens.data.tmdb.TmdbWatchProvider
 import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.ContentCategory
@@ -122,12 +131,24 @@ private val LensColors = lightColorScheme(
     onSurface = Color(0xFF0F172A)
 )
 
+private val LensDarkColors = darkColorScheme(
+    primary = Color(0xFF93C5FD),
+    secondary = Color(0xFF5EEAD4),
+    tertiary = Color(0xFFFCD34D),
+    surface = Color(0xFF111827),
+    surfaceVariant = Color(0xFF334155),
+    background = Color(0xFF020617),
+    onPrimary = Color(0xFF082F49),
+    onSurface = Color(0xFFE5E7EB)
+)
+
 @Composable
 fun ContentLensApp(viewModel: ContentLensViewModel) {
     val state by viewModel.uiState.collectAsState()
     var screen by rememberSaveable { mutableStateOf(Screen.Home) }
+    val colorScheme = if (isSystemInDarkTheme()) LensDarkColors else LensColors
 
-    MaterialTheme(colorScheme = LensColors) {
+    MaterialTheme(colorScheme = colorScheme) {
         Scaffold(
             bottomBar = {
                 NavigationBar {
@@ -280,7 +301,7 @@ private fun DiscoveryPosterCard(
 ) {
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(8.dp),
         modifier = Modifier.width(132.dp)
     ) {
@@ -442,7 +463,7 @@ private fun RemoteSearchContent(
     when (state) {
         RemoteSearchUiState.Initial -> EmptyState("Search movies and TV", "Type at least two characters to search TMDB for movies and shows.")
         is RemoteSearchUiState.Waiting -> EmptyState("Ready to search", "Keep typing or tap Search. Requests wait briefly so stale searches are cancelled.")
-        is RemoteSearchUiState.Loading -> LoadingState("Searching TMDB", "Looking for movies and TV shows with artwork.")
+        is RemoteSearchUiState.Loading -> SearchSkeletonList()
         is RemoteSearchUiState.NoResults -> Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             EmptyState("No matching titles", "TMDB did not return movies or shows for \"${state.query}\".")
             TextButton(onClick = onClear) { Text("Clear search") }
@@ -501,16 +522,20 @@ private fun RemotePosterResultCard(
     safety: ExternalSafetyState? = null,
     onClick: () -> Unit
 ) {
+    val topWarning = when (safety) {
+        is ExternalSafetyState.Loaded -> safety.report.entries.maxByOrNull { it.severity.score }
+        else -> null
+    }
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(8.dp)
     ) {
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top) {
             PosterArtwork(
                 url = imageUrlBuilder.poster(result.posterPath),
                 contentDescription = "Poster for ${result.title}",
-                modifier = Modifier.width(92.dp)
+                modifier = Modifier.width(112.dp)
             )
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -522,10 +547,10 @@ private fun RemotePosterResultCard(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    AssistChip(onClick = {}, label = { Text(result.mediaType.label) })
+                    MediaTypeBadge(result.mediaType.label)
                 }
-                Text(
-                    listOfNotNull(result.releaseYear?.toString(), "TMDB ${String.format("%.1f", result.voteAverage)}").joinToString(" • "),
+                    Text(
+                        listOfNotNull(result.releaseYear?.toString(), "TMDB ${String.format("%.1f", result.voteAverage)}").joinToString(" / "),
                     color = Color(0xFF64748B),
                     style = MaterialTheme.typography.bodySmall
                 )
@@ -537,6 +562,8 @@ private fun RemotePosterResultCard(
                     style = MaterialTheme.typography.bodySmall
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AgeRatingBadge("Rating pending")
+                    MatchBadge("Title match")
                     if (reports.isEmpty()) {
                         SearchSafetyChips(safety)
                     } else {
@@ -544,11 +571,124 @@ private fun RemotePosterResultCard(
                         AssistChip(onClick = {}, label = { Text("${reports.size} local reports") })
                         highest?.let { AssistChip(onClick = {}, label = { Text("${it.category.label}: ${it.severity.label}") }) }
                     }
-                    AssistChip(onClick = {}, label = { Text("Match: title search") })
+                    topWarning?.let { ContentWarningBadge("${it.category.label}: ${it.severity.label}") }
+                    ProviderStatusBadge()
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SearchSkeletonList() {
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { LoadingState("Searching TMDB", "Looking for movies and TV shows with artwork.") }
+        items(3) { MediaSkeletonCard() }
+    }
+}
+
+@Composable
+private fun MediaSkeletonCard() {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top) {
+            Box(
+                Modifier
+                    .width(112.dp)
+                    .aspectRatio(2f / 3f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Brush.verticalGradient(listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1))))
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SkeletonLine(0.9f)
+                SkeletonLine(0.55f)
+                SkeletonLine(1f)
+                SkeletonLine(0.75f)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SkeletonPill()
+                    SkeletonPill()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkeletonLine(widthFraction: Float) {
+    Box(
+        Modifier
+            .fillMaxWidth(widthFraction)
+            .height(14.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFFE2E8F0))
+    )
+}
+
+@Composable
+private fun SkeletonPill() {
+    Box(
+        Modifier
+            .width(86.dp)
+            .height(28.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFFE2E8F0))
+    )
+}
+
+@Composable
+private fun MediaTypeBadge(label: String) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = {
+            Icon(if (label == "TV") Icons.Outlined.Tv else Icons.Outlined.LocalMovies, contentDescription = null, modifier = Modifier.size(16.dp))
+        },
+        label = { Text(label) }
+    )
+}
+
+@Composable
+private fun AgeRatingBadge(label: String) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text(label) }
+    )
+}
+
+@Composable
+private fun MatchBadge(label: String) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.Star, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text(label) }
+    )
+}
+
+@Composable
+private fun ContentWarningBadge(label: String) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.WarningAmber, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFB45309)) },
+        label = { Text(label) }
+    )
+}
+
+@Composable
+private fun ProviderStatusBadge() {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.PlayCircle, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("Providers in details") }
+    )
+}
+
+@Composable
+private fun GenreChip(label: String) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.LocalMovies, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text(label) }
+    )
 }
 
 @Composable
@@ -625,9 +765,9 @@ private fun RemoteTitleDetail(
         item {
             SectionTitle("Rating details")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                AssistChip(onClick = {}, label = { Text(result.mediaType.label) })
-                AssistChip(onClick = {}, label = { Text(details.certification?.let { "Rated $it" } ?: "Certification unknown") })
-                AssistChip(onClick = {}, label = { Text("TMDB ${String.format("%.1f", result.voteAverage)}") })
+                MediaTypeBadge(result.mediaType.label)
+                AgeRatingBadge(details.certification?.let { "Rated $it" } ?: "Certification unknown")
+                MatchBadge("TMDB ${String.format("%.1f", result.voteAverage)}")
                 AssistChip(onClick = {}, label = { Text("${result.voteCount} votes") })
             }
         }
@@ -635,7 +775,7 @@ private fun RemoteTitleDetail(
             item {
                 SectionTitle("Genres")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    details.genres.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                    details.genres.forEach { GenreChip(it) }
                 }
             }
         }
@@ -649,8 +789,8 @@ private fun RemoteTitleDetail(
         if (details.watchProviders.isNotEmpty()) {
             item {
                 SectionTitle("Available in your region")
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    details.watchProviders.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.watchProviders.forEach { ProviderRow(it, imageUrlBuilder) }
                 }
                 Text(
                     "Availability is reported by TMDB for the US region and may not reflect your personal account.",
@@ -663,17 +803,24 @@ private fun RemoteTitleDetail(
         if (details.cast.isNotEmpty()) {
             item {
                 SectionTitle("Cast")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    details.cast.take(8).forEach { CastRow(it, imageUrlBuilder) }
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(details.cast.take(12), key = { it.id }) { cast ->
+                        CastPosterCard(cast, imageUrlBuilder)
+                    }
                 }
             }
         }
         if (details.similar.isNotEmpty()) {
             item {
                 SectionTitle("Similar titles")
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    details.similar.take(4).forEach { similar ->
-                        RemotePosterResultCard(similar, imageUrlBuilder, onClick = {})
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(details.similar.take(10), key = { "${it.mediaType}-${it.tmdbId}" }) { similar ->
+                        DiscoveryPosterCard(
+                            result = similar,
+                            imageUrlBuilder = imageUrlBuilder,
+                            safety = null,
+                            onClick = {}
+                        )
                     }
                 }
             }
@@ -701,7 +848,7 @@ private fun RemoteRatingReport(
     val externalEntries = externalReport?.entries.orEmpty()
     val hasAnyWarnings = reports.isNotEmpty() || externalEntries.isNotEmpty()
     SectionTitle("Rating report")
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("Official: ${certification ?: "Unknown"}") })
@@ -781,7 +928,7 @@ private fun ExternalSafetySection(state: ExternalSafetyState, compact: Boolean =
         )
         is ExternalSafetyState.UpgradeRequired -> InfoCard("Provider tier needed", state.message)
         is ExternalSafetyState.Error -> InfoCard("Safety source unavailable", state.message)
-        is ExternalSafetyState.Loaded -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        is ExternalSafetyState.Loaded -> Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     AssistChip(onClick = {}, label = { Text(state.report.source) })
@@ -861,7 +1008,7 @@ private fun RemoteReportComposer(details: TmdbTitleDetails, viewModel: ContentLe
     var season by rememberSaveable { mutableStateOf("") }
     var episode by rememberSaveable { mutableStateOf("") }
 
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -930,7 +1077,7 @@ private fun ratingExplanation(certification: String?, rating: LensRating): Strin
 @Composable
 private fun RemoteDetailHero(details: TmdbTitleDetails, imageUrlBuilder: ImageUrlBuilder) {
     val result = details.result
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column {
             val backdropUrl = imageUrlBuilder.backdrop(result.backdropPath)
             if (backdropUrl != null) {
@@ -974,6 +1121,75 @@ private fun RemoteDetailHero(details: TmdbTitleDetails, imageUrlBuilder: ImageUr
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderRow(provider: TmdbWatchProvider, imageUrlBuilder: ImageUrlBuilder) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            ProviderLogo(
+                url = imageUrlBuilder.logo(provider.logoPath),
+                name = provider.name,
+                modifier = Modifier.size(42.dp)
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(provider.name, fontWeight = FontWeight.SemiBold)
+                Text("Available on ${provider.name} in your region", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(Icons.Outlined.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun ProviderLogo(url: String?, name: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var failed by remember(url) { mutableStateOf(false) }
+    Box(
+        modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xFFE2E8F0)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (url == null || failed) {
+            Text(providerInitials(name), fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+        } else {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .diskCacheKey(url)
+                    .memoryCacheKey(url)
+                    .build(),
+                contentDescription = "Logo for $name",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().padding(4.dp),
+                onError = { failed = true }
+            )
+        }
+    }
+}
+
+private fun providerInitials(name: String): String {
+    return name.split(" ").filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }.ifBlank { "TV" }
+}
+
+@Composable
+private fun CastPosterCard(cast: TmdbCastMember, imageUrlBuilder: ImageUrlBuilder) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp), modifier = Modifier.width(112.dp)) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PosterArtwork(
+                url = imageUrlBuilder.profile(cast.profilePath),
+                contentDescription = "Photo of ${cast.name}",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(cast.name, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (cast.character.isNotBlank()) {
+                Text(cast.character, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -1035,13 +1251,13 @@ private fun MissingPosterPlaceholder() {
             .background(Brush.verticalGradient(listOf(Color(0xFFCBD5E1), Color(0xFF94A3B8)))),
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Outlined.PrivacyTip, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
+        Icon(Icons.Outlined.Image, contentDescription = null, tint = Color.White, modifier = Modifier.size(30.dp))
     }
 }
 
 @Composable
 private fun LoadingState(title: String, body: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
             Spacer(Modifier.width(12.dp))
@@ -1055,7 +1271,7 @@ private fun LoadingState(title: String, body: String) {
 
 @Composable
 private fun RetryState(title: String, body: String, onRetry: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(body, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
@@ -1075,7 +1291,7 @@ private fun WatchlistScreen(state: AppUiState, viewModel: ContentLensViewModel) 
             item { EmptyState("No watchlist yet", "Save a title from its detail view to compare later.") }
         } else {
             items(watchlistTitles, key = { it.id }) { title ->
-                TitleResultRow(title, title.id == state.selectedTitleId) {
+                TitleResultRow(title, title.id == state.selectedTitleId, saved = true) {
                     viewModel.selectTitle(title.id)
                 }
             }
@@ -1217,7 +1433,7 @@ private fun SettingsScreen(state: AppUiState, viewModel: ContentLensViewModel) {
 @Composable
 private fun TitleDetailCard(titleLens: TitleLens, state: AppUiState, viewModel: ContentLensViewModel) {
     var showSpoilers by rememberSaveable(titleLens.title.id) { mutableStateOf(false) }
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 PosterPlaceholder(titleLens.title.posterTone)
@@ -1281,26 +1497,49 @@ private fun ContentBreakdown(entries: List<ContentRatingEntryEntity>, spoilerFre
 }
 
 @Composable
-private fun TitleResultRow(title: MediaTitleEntity, selected: Boolean, onClick: () -> Unit) {
+private fun TitleResultRow(title: MediaTitleEntity, selected: Boolean, saved: Boolean = false, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFEFF6FF) else Color.White),
+        colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFEFF6FF) else MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            PosterPlaceholder(title.posterTone, compact = true)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${title.year} • ${title.type.label}", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+            PosterPlaceholder(title.posterTone, compact = false)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                    Text(
+                        title.title,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (saved) WatchlistStatusBadge()
+                }
+                Text("${title.year} / ${title.type.label}", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AgeRatingBadge(title.officialRating ?: "Unrated")
+                    MatchBadge("Local report")
+                }
+                Text(title.summary, color = Color(0xFF475569), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
 
 @Composable
+private fun WatchlistStatusBadge() {
+    AssistChip(
+        onClick = {},
+        leadingIcon = { Icon(Icons.Outlined.BookmarkAdd, contentDescription = null, modifier = Modifier.size(16.dp)) },
+        label = { Text("Saved") }
+    )
+}
+
+@Composable
 private fun ProfileCard(profile: UserProfileEntity, selected: Boolean, onClick: () -> Unit) {
-    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFECFDF5) else Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(onClick = onClick, colors = CardDefaults.cardColors(containerColor = if (selected) Color(0xFFECFDF5) else MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Person, contentDescription = null, tint = Color(0xFF0F766E))
             Spacer(Modifier.width(10.dp))
@@ -1362,7 +1601,7 @@ private fun EmptyState(title: String, body: String) {
 
 @Composable
 private fun InfoCard(title: String, body: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxWidth().padding(12.dp)) {
             Text(title, fontWeight = FontWeight.SemiBold)
             Text(body, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
@@ -1372,7 +1611,7 @@ private fun InfoCard(title: String, body: String) {
 
 @Composable
 private fun SettingSwitch(title: String, body: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.SemiBold)
@@ -1400,7 +1639,7 @@ private fun PosterPlaceholder(tone: String, compact: Boolean = false) {
             .background(Brush.verticalGradient(listOf(color, color.copy(alpha = 0.62f))), RoundedCornerShape(8.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Outlined.PrivacyTip, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (compact) 24.dp else 38.dp))
+        Icon(Icons.Outlined.Image, contentDescription = null, tint = Color.White, modifier = Modifier.size(if (compact) 24.dp else 38.dp))
     }
 }
 
@@ -1460,3 +1699,5 @@ private fun TitleDropdown(label: String, items: List<MediaTitleEntity>, selected
         }
     }
 }
+
+

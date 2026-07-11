@@ -53,8 +53,12 @@ async function featuredResponse(env, request, ctx) {
   const edgeCache = typeof caches !== "undefined" ? caches.default : null;
   const edgeCacheKey = new Request(new URL("/v1/featured", request.url).toString(), { method: "GET" });
   if (edgeCache) {
-    const cachedResponse = await edgeCache.match(edgeCacheKey);
-    if (cachedResponse) return cachedResponse;
+    try {
+      const cachedResponse = await edgeCache.match(edgeCacheKey);
+      if (cachedResponse) return cachedResponse;
+    } catch (error) {
+      console.warn("Featured edge cache read failed", { message: error?.message });
+    }
   }
 
   const apiKey = env?.DOES_THE_DOG_DIE_API_KEY || "";
@@ -87,11 +91,17 @@ async function featuredResponse(env, request, ctx) {
   cache.set(feedCacheKey, { value: feed, expiresAt: Date.now() + FEATURED_FEED_TTL_MS });
   const response = json(feed, 200, { "Cache-Control": "public, max-age=3600", "X-ContentLens-Cache": "miss" });
   if (edgeCache) {
-    const cacheWrite = edgeCache.put(edgeCacheKey, response.clone());
-    if (ctx?.waitUntil) {
-      ctx.waitUntil(cacheWrite);
-    } else {
-      await cacheWrite;
+    try {
+      const cacheWrite = edgeCache.put(edgeCacheKey, response.clone()).catch((error) => {
+        console.warn("Featured edge cache write failed", { message: error?.message });
+      });
+      if (ctx?.waitUntil) {
+        ctx.waitUntil(cacheWrite);
+      } else {
+        await cacheWrite;
+      }
+    } catch (error) {
+      console.warn("Featured edge cache write setup failed", { message: error?.message });
     }
   }
   return response;

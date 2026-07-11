@@ -78,6 +78,7 @@ data class DiscoverySectionState(
     val title: String,
     val subtitle: String,
     val results: List<NormalizedMediaResult> = emptyList(),
+    val allResults: List<NormalizedMediaResult> = results,
     val imageUrlBuilder: ImageUrlBuilder? = null,
     val loading: Boolean = false,
     val error: String? = null
@@ -342,16 +343,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     fun searchPreset(section: DiscoverySectionState) {
         query.value = section.title
         val builder = section.imageUrlBuilder
-        if (builder != null && section.results.isNotEmpty()) {
+        val results = section.allResults.ifEmpty { section.results }
+        if (builder != null && results.isNotEmpty()) {
             remoteSearch.value = RemoteSearchUiState.Results(
                 query = section.title,
-                results = section.results,
+                results = results,
                 imageUrlBuilder = builder,
                 page = 1,
                 totalPages = 1,
-                totalResults = section.results.size
+                totalResults = results.size
             )
-            prefetchSearchSafety(section.results)
+            prefetchSearchSafety(results)
         } else {
             startRemoteSearch(section.title, skipDebounce = true)
         }
@@ -674,7 +676,8 @@ private fun defaultDiscoverySections(): List<DiscoverySectionState> {
             key = it.key,
             title = it.title,
             subtitle = it.subtitle,
-            results = it.seeds.map { seed -> seed.toResult() },
+            results = it.seeds.take(4).map { seed -> seed.toResult() },
+            allResults = it.seeds.map { seed -> seed.toResult() },
             imageUrlBuilder = ImageUrlBuilder(),
             loading = false
         )
@@ -690,7 +693,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             tv(82728, "Bluey", "/b9mY0X5T20ZM073hoa5n0dgmbfN.jpg", "/g88VMPtog8sl8riaIRtz4U80dMK.jpg", "2018-10-01", 8.6, 711),
             tv(40050, "Daniel Tiger's Neighborhood", "/pUbHrEFTWegyhIxFmtpOpAQsbfT.jpg", "/yAIpWHcLmS1O2aCrx4oBhXtwoHt.jpg", "2012-09-03", 7.1, 33),
             tv(69926, "Puffin Rock", "/8ZYTNkpubnG8epqlJLjaWbbO30R.jpg", "/9z945wZwFzJ0EbzY8vsk5ELCZeJ.jpg", "2015-01-12", 7.6, 11),
-            tv(2005, "The New Adventures of Winnie the Pooh", "/iJFbF43bN1HX5EZl4OFAVmJDl1u.jpg", "/pFRX1VUIm0j7a9VI1lQke9tOMZY.jpg", "1988-09-10", 7.7, 273)
+            tv(2005, "The New Adventures of Winnie the Pooh", "/iJFbF43bN1HX5EZl4OFAVmJDl1u.jpg", "/pFRX1VUIm0j7a9VI1lQke9tOMZY.jpg", "1988-09-10", 7.7, 273),
+            tv(12225, "Peppa Pig", "/iwKVo3HlsyVNXCzFEkd0xHz3kGi.jpg", "/fnyS6gOv9tTjhHPl4A1aKEDgWEG.jpg", "2004-05-31", 6.5, 751),
+            tv(65047, "Tumble Leaf", "/8MbsSjulW9HZHfLecV2S2dyzk77.jpg", "/iGqDxkX7NY6gx0Ts4reV8zQOAm.jpg", "2013-04-19", 7.5, 6),
+            tv(92885, "Blue's Clues & You!", "/wXgrjyQTjTYaaS0iNcKWXl4UgSK.jpg", "/ofNbWXNtRrPB1oe7w7ugSCKJyua.jpg", "2019-11-11", 7.0, 42),
+            tv(15, "Mister Rogers' Neighborhood", "/qhbeRYVg120cBmc9XvGxvk6EmJF.jpg", "/bvbOrvK0hQveMB6SmQoAwIuRToh.jpg", "1968-02-19", 6.1, 123)
         )
     ),
     DiscoveryPreset(
@@ -701,7 +708,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             tv(502, "Sesame Street", "/14k9BfZ2p4rQBMeJ5crKTfUZVwD.jpg", "/tNi2aJPdCKfielGYzIi3IKxStz9.jpg", "1969-11-10", 7.1, 286),
             tv(656, "Curious George", "/1FsihcjjTrzkmD9i8hRPzE6GhZf.jpg", "/vn9iFlwSvl8B9YE1qayrKWMxoEV.jpg", "2006-09-04", 7.2, 135),
             tv(37472, "Octonauts", "/iYUhUSKWKpSBahaWLUQIPckAy8p.jpg", "/lbdBBEnto6xPQ8oKHt5P9r3JCfH.jpg", "2010-10-05", 7.2, 57),
-            tv(93548, "Molly of Denali", "/8HdIoG6HHJJaf8M3SAVQrGgCvHp.jpg", "/pvyxHVkUoLoT97ildtGKH2BHSGm.jpg", "2019-07-15", 7.0, 1)
+            tv(93548, "Molly of Denali", "/8HdIoG6HHJJaf8M3SAVQrGgCvHp.jpg", "/pvyxHVkUoLoT97ildtGKH2BHSGm.jpg", "2019-07-15", 7.0, 1),
+            tv(79, "Dora the Explorer", "/iaJNOSpEQgU4yePsbcC6yxneRNF.jpg", "/uEPbIAmsZENHL5B50WNYSyItFjf.jpg", "2000-08-14", 6.3, 344),
+            tv(14766, "Super Why!", "/lJttSVfKx56a2wN2pg2yR4IHzwy.jpg", "/U9VKLLo9IeQU1aQAOA6s4Na5Pc.jpg", "2007-09-03", 7.1, 19),
+            tv(106009, "Numberblocks", "/vt872bR11jYDRSzTSfLuOmb2SMt.jpg", "/u9H3GJHNxlQwVeyJDxGGD7Uu9iH.jpg", "2017-01-23", 8.4, 24),
+            tv(8379, "Clifford the Big Red Dog", "/tZLS8aT8Iqnbw8oMKIi1WHidCA1.jpg", "/4XKhVE10MOao7dieT4QP34vKk9K.jpg", "2000-09-04", 6.6, 88)
         )
     ),
     DiscoveryPreset(
@@ -712,7 +723,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             tv(35094, "Wild Kratts", "/7Nn1AZb6LJv0WedeK7o4yU6Aioh.jpg", "/lQ1WqzCSyjH3Zhe11776cnP7ESO.jpg", "2011-01-03", 7.5, 64),
             tv(7248, "The Magic School Bus", "/3A70wxUpplD4V3IcL8WmNFBgAbV.jpg", "/pWZjTb2ixwVEzvnsvv3KYz5pvIs.jpg", "1994-09-10", 7.7, 134),
             movie(227973, "The Peanuts Movie", "/aiwdwnl7RFs1vcBanOKr13ye3wE.jpg", "/361quVX94drEaExOKScbZYsxijG.jpg", "2015-11-05", 7.0, 1811),
-            tv(3902, "Shaun the Sheep", "/z2gPfTQd3I0JLWOAEdKYMQRLoun.jpg", "/onwny8s0VTTN7te9TJnItgvyWHy.jpg", "2007-03-05", 7.6, 282)
+            tv(3902, "Shaun the Sheep", "/z2gPfTQd3I0JLWOAEdKYMQRLoun.jpg", "/onwny8s0VTTN7te9TJnItgvyWHy.jpg", "2007-03-05", 7.6, 282),
+            tv(4217, "Zoboomafoo", "/5JMgrHBaspcU9KIfC7nTfPFNL9x.jpg", "/OMZrF60GxJa1iUA78SwwRDjd0k.jpg", "1999-01-25", 6.8, 37),
+            tv(2153, "Arthur", "/nYN8okmcsmhd4bGVcqifZ5OCumB.jpg", "/5k3JpB88vubqYVSHHiAhk2T8z17.jpg", "1996-10-07", 7.0, 186),
+            tv(70437, "Ask the Storybots", "/6IY8bmJcUGmgcB9ERnx8hLw7Qz5.jpg", "/947dkEryFtsyO0pNlVRJV53ZbEb.jpg", "2016-08-12", 7.0, 13),
+            movie(313297, "Kubo and the Two Strings", "/ewcOCkuuKAKULGUnbBVaO1htt0D.jpg", "/bhspYsRMHgMqzUlxiVpIY8OrqMt.jpg", "2016-08-18", 7.6, 3839)
         )
     ),
     DiscoveryPreset(
@@ -723,7 +738,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             movie(10191, "How to Train Your Dragon", "/ygGmAO60t8GyqUo9xYeYxSZAR3b.jpg", "/59vDC1BuEQvti24OMr0ZvtAK6R1.jpg", "2010-03-18", 7.9, 14467),
             tv(82456, "Hilda", "/giWufGBC7uxrmK9ZESdk9D1cyGm.jpg", "/x5YFTfPDug6eF76vVuDnbaoNVQK.jpg", "2018-09-21", 8.4, 240),
             tv(246, "Avatar: The Last Airbender", "/9RQhVb3r3mCMqYVhLoCu4EvuipP.jpg", "/kU98MbVVgi72wzceyrEbClZmMFe.jpg", "2005-02-21", 8.8, 4943),
-            movie(501929, "The Mitchells vs. the Machines", "/mI2Di7HmskQQ34kz0iau6J1vr70.jpg", "/vsZLf5uog08pAnfsMuDWrsLWUUF.jpg", "2021-04-22", 7.8, 3401)
+            movie(501929, "The Mitchells vs. the Machines", "/mI2Di7HmskQQ34kz0iau6J1vr70.jpg", "/vsZLf5uog08pAnfsMuDWrsLWUUF.jpg", "2021-04-22", 7.8, 3401),
+            movie(313297, "Kubo and the Two Strings", "/ewcOCkuuKAKULGUnbBVaO1htt0D.jpg", "/bhspYsRMHgMqzUlxiVpIY8OrqMt.jpg", "2016-08-18", 7.6, 3839),
+            movie(177572, "Big Hero 6", "/2mxS4wUimwlLmI1xp6QW6NSU361.jpg", "/4s2d3xdyqotiVNHTlTlJjrr3q0H.jpg", "2014-10-24", 7.7, 16676),
+            movie(324857, "Spider-Man: Into the Spider-Verse", "/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg", "/8mnXR9rey5uQ08rZAvzojKWbDQS.jpg", "2018-12-06", 8.4, 17395),
+            movie(9806, "The Incredibles", "/2LqaLgk4Z226KkgPJuiOQ58wvrm.jpg", "/lxwzY9vNwjDgxWKt3zZ6zcU6rEJ.jpg", "2004-10-27", 7.7, 19012)
         )
     ),
     DiscoveryPreset(
@@ -734,7 +753,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             movie(277834, "Moana", "/9tzN8sPbyod2dsa0lwuvrwBDWra.jpg", "/iYLKMV7PIBtFmtygRrhSiyzcVsF.jpg", "2016-10-13", 7.6, 13810),
             movie(8587, "The Lion King", "/sKCr78MXSLixwmZ8DyJLrpMsd15.jpg", "/q00H8EqULYSK74lgevMkhmGGLHn.jpg", "1994-06-15", 8.3, 19813),
             movie(116149, "Paddington", "/wpchRGhRhvhtU083PfX2yixXtiw.jpg", "/kfofK4GzJsJZhCShqZY438c8Y4Y.jpg", "2014-11-24", 7.1, 4273),
-            movie(862, "Toy Story", "/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg", "/3Rfvhy1Nl6sSGJwyjb0QiZzZYlB.jpg", "1995-11-22", 8.0, 20132)
+            movie(862, "Toy Story", "/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg", "/3Rfvhy1Nl6sSGJwyjb0QiZzZYlB.jpg", "1995-11-22", 8.0, 20132),
+            movie(109445, "Frozen", "/itAKcobTYGpYT8Phwjd8c9hleTo.jpg", "/rj58WQ9ImI0mYDptXdM7euX1Wjt.jpg", "2013-11-20", 7.2, 17657),
+            movie(12, "Finding Nemo", "/5lc6nQc0VhWFYFbNv016xze8Jvy.jpg", "/eCynaAOgYYiw5yN5lBwz3IxqvaW.jpg", "2003-05-30", 7.8, 20667),
+            movie(354912, "Coco", "/6Ryitt95xrO8KXuqRGm1fUuNwqF.jpg", "/g7CHF8gTLGooTbP4GznIGwaqAGL.jpg", "2017-10-27", 8.2, 21111),
+            movie(568124, "Encanto", "/4j0PNHkMr5ax3IA8tjtxcmPU3QT.jpg", "/3G1Q5xF40HkUBJXxt2DQgQzKTp5.jpg", "2021-10-13", 7.6, 10264)
         )
     ),
     DiscoveryPreset(
@@ -745,7 +768,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             movie(16859, "Kiki's Delivery Service", "/Aufa4YdZIv4AXpR9rznwVA5SEfd.jpg", "/h5pAEVma835u8xoE60kmLVopLct.jpg", "1989-07-29", 7.8, 4620, "ja"),
             movie(8392, "My Neighbor Totoro", "/rtGDOeG9LzoerkDGZF9dnVeLppL.jpg", "/zkThiZAaAie8Lw7RAc5yPTOewBV.jpg", "1988-04-16", 8.1, 8897, "ja"),
             movie(263109, "Shaun the Sheep Movie", "/1GMvKNy2Ht5QwI0oV0ycYnxzWdC.jpg", "/sQbpfYoGiEBUnr8tBjHP51heNNT.jpg", "2015-02-05", 7.0, 1525),
-            movie(227973, "The Peanuts Movie", "/aiwdwnl7RFs1vcBanOKr13ye3wE.jpg", "/361quVX94drEaExOKScbZYsxijG.jpg", "2015-11-05", 7.0, 1811)
+            movie(227973, "The Peanuts Movie", "/aiwdwnl7RFs1vcBanOKr13ye3wE.jpg", "/361quVX94drEaExOKScbZYsxijG.jpg", "2015-11-05", 7.0, 1811),
+            movie(12429, "Ponyo", "/yp8vEZflGynlEylxEesbYasc06i.jpg", "/shqLeIkqPAAXM8iT6wVDiXUYz1p.jpg", "2008-07-19", 7.8, 4864, "ja"),
+            movie(116149, "Paddington", "/wpchRGhRhvhtU083PfX2yixXtiw.jpg", "/kfofK4GzJsJZhCShqZY438c8Y4Y.jpg", "2014-11-24", 7.1, 4273),
+            movie(51162, "Winnie the Pooh", "/xlFs85nq62jeR4a9iHNGB113m6x.jpg", "/e0SlSnLQzIhdcr86akVJinA1Jau.jpg", "2011-04-06", 6.9, 972),
+            movie(51739, "The Secret World of Arrietty", "/3lSRaSjDp2nkXMQkzzjpRi3035O.jpg", "/7Z7WVzJsSReG8B0CaPk0bvWD7tK.jpg", "2010-07-16", 7.7, 3200, "ja")
         )
     ),
     DiscoveryPreset(
@@ -756,7 +783,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             movie(12, "Finding Nemo", "/5lc6nQc0VhWFYFbNv016xze8Jvy.jpg", "/eCynaAOgYYiw5yN5lBwz3IxqvaW.jpg", "2003-05-30", 7.8, 20667),
             movie(150540, "Inside Out", "/2H1TmgdfNtsKlU9jKdeNyYL5y8T.jpg", "/o3i6AfTcWAuNvzAUV3q5lOmi6Gx.jpg", "2015-06-17", 7.9, 23585),
             movie(9806, "The Incredibles", "/2LqaLgk4Z226KkgPJuiOQ58wvrm.jpg", "/lxwzY9vNwjDgxWKt3zZ6zcU6rEJ.jpg", "2004-10-27", 7.7, 19012),
-            movie(324857, "Spider-Man: Into the Spider-Verse", "/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg", "/8mnXR9rey5uQ08rZAvzojKWbDQS.jpg", "2018-12-06", 8.4, 17395)
+            movie(324857, "Spider-Man: Into the Spider-Verse", "/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg", "/8mnXR9rey5uQ08rZAvzojKWbDQS.jpg", "2018-12-06", 8.4, 17395),
+            movie(862, "Toy Story", "/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg", "/3Rfvhy1Nl6sSGJwyjb0QiZzZYlB.jpg", "1995-11-22", 8.0, 20132),
+            movie(585, "Monsters, Inc.", "/wFSpyMsp7H0ttERbxY7Trlv8xry.jpg", "/sDTnMOJ3H5wI38OxObmCtK7wfd5.jpg", "2001-11-01", 7.9, 19924),
+            movie(14160, "Up", "/mFvoEwSfLqbcWwFsDjQebn9bzFe.jpg", "/hGGC9gKo7CFE3fW07RA587e5kol.jpg", "2009-05-28", 8.0, 21797),
+            movie(10681, "WALL-E", "/hbhFnRzzg6ZDmm8YAmxBnQpQIPh.jpg", "/nYs4ZwnJBK4AgljhvzwNz7fpr3E.jpg", "2008-06-26", 8.1, 20453)
         )
     ),
     DiscoveryPreset(
@@ -767,7 +798,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             tv(80616, "Wallace & Gromit's Cracking Contraptions", "/vpEk64myGeCCCmnG7r9EiBymfZt.jpg", "/snFImD0BfsFJSuTDuUKAc5u6t0O.jpg", "2002-10-15", 8.4, 16),
             movie(13187, "A Charlie Brown Christmas", "/vtaufTzJBMJAeziQA1eP4BLU24C.jpg", "/ucWnzjWWWd6CmRal8J3tWz6m1A7.jpg", "1965-12-09", 7.7, 786),
             tv(3902, "Shaun the Sheep", "/z2gPfTQd3I0JLWOAEdKYMQRLoun.jpg", "/onwny8s0VTTN7te9TJnItgvyWHy.jpg", "2007-03-05", 7.6, 282),
-            tv(114501, "Dug Days", "/e5kT33XH2gX7xBFIK1uUJAvU5dj.jpg", "/pgWgB8AfFOtwKSSoGYbmWsO5Mfq.jpg", "2021-09-01", 7.4, 543)
+            tv(114501, "Dug Days", "/e5kT33XH2gX7xBFIK1uUJAvU5dj.jpg", "/pgWgB8AfFOtwKSSoGYbmWsO5Mfq.jpg", "2021-09-01", 7.4, 543),
+            tv(323849, "Forky Asks a Question", "/kd8Tuc1110dkhdWELC3APLvIJOK.jpg", "/kdnIvDYDXTSJeEtEVzihVl7VtKu.jpg", "2019-11-12", 0.0, 0),
+            tv(91249, "Snoopy in Space: The Search for Life", "/ssAYRDytRsA8S0TAYMrr8dJgrlT.jpg", "/rKAMgHfUpT7Xc5jFMOuG9G6jumG.jpg", "2019-11-01", 7.5, 60),
+            tv(46879, "Mickey Mouse", "/aAJ5T2Ab28vbbP9s6wWqdtK3arQ.jpg", "/qqaCwVzDmocRBI5Kl4RGgfwabn1.jpg", "2013-06-28", 7.6, 239),
+            tv(3934, "Mickey Mouse Clubhouse", "/gHtEhlAZHxMawOiPq7JoKwkmETQ.jpg", "/89BPrKS6BoktBPTfWcHMQrFNo8s.jpg", "2006-05-05", 6.8, 388)
         )
     ),
     DiscoveryPreset(
@@ -778,7 +813,11 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
             movie(671, "Harry Potter and the Philosopher's Stone", "/wuMc08IPKEatf9rnMNXvIDxqP4W.jpg", "/1XAC6RPT01UX9EQGy2JVn5c8pgy.jpg", "2001-11-16", 7.9, 29774),
             movie(411, "The Chronicles of Narnia", "/iREd0rNCjYdf5Ar0vfaW32yrkm.jpg", "/tuDhEdza074bA497bO9WFEPs6O6.jpg", "2005-12-07", 7.1, 11582),
             tv(103540, "Percy Jackson and the Olympians", "/40eFcTzZier3DWLqldsP5VHxeoD.jpg", "/danN2NzJTMouaBEkDWTnyDjDxUt.jpg", "2023-12-19", 7.3, 785),
-            tv(40075, "Gravity Falls", "/qwi3p6PzKfQZ4YXBzv3CP5pO2dE.jpg", "/lhg7eA6CTOCL10QNVdKiyxkgPsL.jpg", "2012-06-15", 8.6, 3511)
+            tv(40075, "Gravity Falls", "/qwi3p6PzKfQZ4YXBzv3CP5pO2dE.jpg", "/lhg7eA6CTOCL10QNVdKiyxkgPsL.jpg", "2012-06-15", 8.6, 3511),
+            movie(11, "Star Wars", "/6FfCtAuVAW8XJjZ7eWeLibRLWTw.jpg", "/yUiXA68FfQeA8cRBhd0Ao0jIRZt.jpg", "1977-05-25", 8.2, 22479),
+            movie(329, "Jurassic Park", "/63viWuPfYQjRYLSZSZNq7dglJP5.jpg", "/o7LzVmlOSYc3EspyVMC9bsTTARc.jpg", "1993-06-11", 8.0, 17990),
+            movie(70160, "The Hunger Games", "/yXCbOiVDCxO71zI7cuwBRXdftq8.jpg", "/yVBQ65YBYZ9UhzJ4NGdRgeXtyTL.jpg", "2012-03-12", 7.2, 23403),
+            tv(119051, "Wednesday", "/36xXlhEpQqVVPuiZhfoQuaY4OlA.jpg", "/iHSwvRVsRyxpX7FE7GbviaDvgGZ.jpg", "2022-11-23", 8.3, 10622)
         )
     )
 )

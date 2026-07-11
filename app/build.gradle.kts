@@ -30,6 +30,12 @@ val tmdbApiKey = (
         ?: System.getenv("TMDB_API_KEY")
         ?: ""
 ).trim()
+val doesTheDogDieApiKey = (
+    localProperties.getProperty("doesTheDogDieApiKey")
+        ?: localProperties.getProperty("DOES_THE_DOG_DIE_API_KEY")
+        ?: System.getenv("DOES_THE_DOG_DIE_API_KEY")
+        ?: ""
+).trim()
 
 fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
@@ -41,12 +47,13 @@ android {
         applicationId = "com.smithware.contentlens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.2.4-report-visibility"
+        versionCode = 10
+        versionName = "0.2.5-safety-source"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", tmdbReadAccessToken.asBuildConfigString())
         buildConfigField("String", "TMDB_API_KEY", tmdbApiKey.asBuildConfigString())
+        buildConfigField("String", "DOES_THE_DOG_DIE_API_KEY", doesTheDogDieApiKey.asBuildConfigString())
     }
 
     signingConfigs {

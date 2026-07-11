@@ -5,8 +5,8 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.2.4-report-visibility`
-- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key.
+- Latest published release: `v0.2.5-safety-source`
+- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 support is in progress as the first external content-safety source.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -24,12 +24,14 @@ Implemented MVP:
 - Local-only report submission
 - Local watchlist
 - Data/privacy and about settings copy
+- Optional DoesTheDogDie community warning source for searched TMDB titles when a local API key is configured
 
 ## Future Needs
 
 - Continue Phase 3 title detail upgrade using TMDB detail, credits, release dates/certifications, similar titles, and watch providers.
 - Real report sync backend
 - Moderation queue and trust signals
+- DoesTheDogDie commercial/tier review before any public/commercial distribution that relies on provider data
 - Editable profile sensitivity UI
 - Timestamp-level entries
 - DevHub registry onboarding if ContentLens should appear in the Smithware store app
@@ -72,6 +74,10 @@ Implemented MVP:
 - `v0.2.4-report-visibility`: surfaces local TMDB-title report data on search result cards, adds TMDB-title submissions to the Reports screen, and recalculates open remote-title profile fit when the active profile changes.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.4-report-visibility`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.4-report-visibility.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.2.5-safety-source`: adds DoesTheDogDie API v3 as the first external content-safety source behind local-only API key configuration, maps community topic stats into ContentLens categories/severity, merges provider warnings into ContentLens rating/profile fit, and adds provider status/attribution UI on remote title details.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.5-safety-source`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.5-safety-source.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

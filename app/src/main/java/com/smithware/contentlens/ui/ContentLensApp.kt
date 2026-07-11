@@ -87,6 +87,8 @@ import com.smithware.contentlens.data.ContentRatingEntryEntity
 import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
+import com.smithware.contentlens.data.safety.ExternalSafetyEntry
+import com.smithware.contentlens.data.safety.ExternalSafetyState
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbCastMember
@@ -497,10 +499,14 @@ private fun RemoteTitleDetail(
                 reports = detail.reports,
                 summary = detail.summary,
                 fit = detail.fit,
+                externalSafety = detail.externalSafety,
                 spoilerFreeMode = spoilerFreeMode,
                 showSpoilers = showSpoilers,
                 onToggleSpoilers = { showSpoilers = !showSpoilers }
             )
+        }
+        item {
+            ExternalSafetySection(detail.externalSafety)
         }
         item {
             RemoteReportComposer(details, viewModel)
@@ -549,6 +555,7 @@ private fun RemoteRatingReport(
     reports: List<RemoteContentReportEntity>,
     summary: com.smithware.contentlens.domain.RatingSummary,
     fit: FitLabel,
+    externalSafety: ExternalSafetyState,
     spoilerFreeMode: Boolean,
     showSpoilers: Boolean,
     onToggleSpoilers: () -> Unit
@@ -560,9 +567,9 @@ private fun RemoteRatingReport(
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("Official: ${certification ?: "Unknown"}") })
-                AssistChip(onClick = {}, label = { Text("ContentLens: ${(if (reports.isEmpty()) preliminary else summary.rating).label}") })
+                AssistChip(onClick = {}, label = { Text("ContentLens: ${(if (summary.entryCount > 0) summary.rating else preliminary).label}") })
                 AssistChip(onClick = {}, label = { Text(fit.label) })
-                AssistChip(onClick = {}, label = { Text(if (reports.isEmpty()) "Confidence: certification only" else "${reports.size} local reports") })
+                AssistChip(onClick = {}, label = { Text(confidenceLabel(reports, externalSafety)) })
             }
             if (reports.isEmpty()) {
                 Text(
@@ -612,6 +619,61 @@ private fun RemoteRatingReport(
                 "TMDB provides metadata and official certification when available. ContentLens category-level reports are local user submissions until a moderation backend exists."
             )
         }
+    }
+}
+
+@Composable
+private fun ExternalSafetySection(state: ExternalSafetyState) {
+    SectionTitle("Content safety source")
+    when (state) {
+        ExternalSafetyState.NotConfigured -> InfoCard(
+            "DoesTheDogDie not configured",
+            "Add a local DoesTheDogDie API key to enable community content warnings. ContentLens will keep treating unknown categories as unknown."
+        )
+        ExternalSafetyState.Loading -> LoadingState("Checking content safety", "Looking for a DoesTheDogDie match for this title.")
+        ExternalSafetyState.NoMatch -> EmptyState(
+            "No external safety match",
+            "DoesTheDogDie did not return a matching movie or TV safety record for this TMDB title."
+        )
+        is ExternalSafetyState.UpgradeRequired -> InfoCard("Provider tier needed", state.message)
+        is ExternalSafetyState.Error -> InfoCard("Safety source unavailable", state.message)
+        is ExternalSafetyState.Loaded -> Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick = {}, label = { Text(state.report.source) })
+                    AssistChip(onClick = {}, label = { Text("${state.report.entries.size} mapped warnings") })
+                    AssistChip(onClick = {}, label = { Text("${state.report.reportCount} community votes") })
+                }
+                state.report.entries.take(8).forEach { ExternalSafetyRow(it) }
+                Text(
+                    state.report.attribution,
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExternalSafetyRow(entry: ExternalSafetyEntry) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(entry.category.label, fontWeight = FontWeight.SemiBold)
+                Text(entry.severity.label, color = SeverityColor(entry.severity), fontWeight = FontWeight.SemiBold)
+            }
+            Text(entry.explanation, color = Color(0xFF475569), style = MaterialTheme.typography.bodySmall)
+            Text("Topic: ${entry.topicName}", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+private fun confidenceLabel(reports: List<RemoteContentReportEntity>, externalSafety: ExternalSafetyState): String {
+    return when {
+        reports.isNotEmpty() -> "${reports.size} local reports"
+        externalSafety is ExternalSafetyState.Loaded -> "DoesTheDogDie community"
+        else -> "Confidence: certification only"
     }
 }
 

@@ -30,3 +30,15 @@ tmdbReadAccessToken=YOUR_TMDB_READ_ACCESS_TOKEN
 The key/token can be stored in ignored `local.properties` or provided as the `TMDB_API_KEY` / `TMDB_READ_ACCESS_TOKEN` environment variable. Do not commit API tokens.
 
 Without this configuration, the app builds and shows a Search not configured state instead of silently returning no results.
+
+## Content Safety Source Configuration
+
+ContentLens can use DoesTheDogDie API v3 community content warnings as an external safety source. Add the key locally before building an APK that should show provider-backed warnings:
+
+```properties
+doesTheDogDieApiKey=YOUR_DOES_THE_DOG_DIE_API_KEY
+```
+
+The key can be stored in ignored `local.properties` or provided as the `DOES_THE_DOG_DIE_API_KEY` environment variable. Do not commit API tokens.
+
+Without this configuration, title details show a DoesTheDogDie not configured state and continue to use local reports plus TMDB certification metadata.

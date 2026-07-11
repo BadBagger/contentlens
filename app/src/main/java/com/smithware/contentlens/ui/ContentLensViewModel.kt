@@ -14,6 +14,9 @@ import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.ProfileSensitivityEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.SettingsStore
+import com.smithware.contentlens.data.safety.DoesTheDogDieClient
+import com.smithware.contentlens.data.safety.DoesTheDogDieError
+import com.smithware.contentlens.data.safety.ExternalSafetyState
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.data.WatchlistItemEntity
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
@@ -93,6 +96,7 @@ sealed class RemoteDetailUiState {
         val details: TmdbTitleDetails,
         val imageUrlBuilder: ImageUrlBuilder,
         val reports: List<RemoteContentReportEntity> = emptyList(),
+        val externalSafety: ExternalSafetyState = ExternalSafetyState.NotConfigured,
         val summary: RatingSummary = RatingSummary(LensRating.InsufficientData, emptyList(), 0),
         val fit: FitLabel = FitLabel.InsufficientData
     ) : RemoteDetailUiState()
@@ -107,6 +111,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val ratingEngine = LocalRatingEngine()
     private val fitEngine = LocalPersonalFitEngine()
     private val tmdbClient = TmdbClient()
+    private val safetySource = DoesTheDogDieClient()
 
     private val selectedTitleId = MutableStateFlow<String?>(null)
     private val selectedProfileId = MutableStateFlow<String?>(null)
@@ -173,9 +178,14 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     val selected = base.titles.firstOrNull { it.id == titleId }
                     val remoteDetail = (base.remoteDetail as? RemoteDetailUiState.Loaded)?.let { loaded ->
                         val entries = loaded.reports.map { it.toEntry() }
+                        val externalEntries = (loaded.externalSafety as? ExternalSafetyState.Loaded)
+                            ?.report
+                            ?.toRatingEntries(loaded.details.remoteKey())
+                            .orEmpty()
+                        val allEntries = entries + externalEntries
                         loaded.copy(
-                            summary = ratingEngine.summarize(entries),
-                            fit = fitEngine.evaluate(entries, sensitivities)
+                            summary = ratingEngine.summarize(allEntries),
+                            fit = fitEngine.evaluate(allEntries, sensitivities)
                         )
                     } ?: base.remoteDetail
                     val titleLens = selected?.let {
@@ -219,14 +229,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             try {
                 val (details, config) = tmdbClient.details(result)
                 val reports = dao.getRemoteReports(remoteMediaKey(result.tmdbId, result.mediaType))
-                val entries = reports.map { it.toEntry() }
-                remoteDetail.value = RemoteDetailUiState.Loaded(
+                val localEntries = reports.map { it.toEntry() }
+                val loaded = RemoteDetailUiState.Loaded(
                     details = details,
                     imageUrlBuilder = ImageUrlBuilder(config),
                     reports = reports,
-                    summary = ratingEngine.summarize(entries),
-                    fit = fitEngine.evaluate(entries, uiState.value.sensitivities)
+                    externalSafety = ExternalSafetyState.Loading,
+                    summary = ratingEngine.summarize(localEntries),
+                    fit = fitEngine.evaluate(localEntries, uiState.value.sensitivities)
                 )
+                remoteDetail.value = loaded
+                loadExternalSafety(loaded)
             } catch (error: Throwable) {
                 remoteDetail.value = RemoteDetailUiState.Error(result, error.toSearchUiState(result.title).let {
                     when (it) {
@@ -379,7 +392,10 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             val loaded = remoteDetail.value as? RemoteDetailUiState.Loaded
             if (loaded != null && loaded.details.result.tmdbId == result.tmdbId && loaded.details.result.mediaType == result.mediaType) {
                 val reports = (listOf(report) + loaded.reports).distinctBy { it.id }
-                val entries = reports.map { it.toEntry() }
+                val entries = reports.map { it.toEntry() } + (loaded.externalSafety as? ExternalSafetyState.Loaded)
+                    ?.report
+                    ?.toRatingEntries(loaded.details.remoteKey())
+                    .orEmpty()
                 remoteDetail.value = loaded.copy(
                     reports = reports,
                     summary = ratingEngine.summarize(entries),
@@ -387,6 +403,29 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 )
             }
         }
+    }
+
+    private suspend fun loadExternalSafety(loaded: RemoteDetailUiState.Loaded) {
+        val state = try {
+            val report = safetySource.reportFor(loaded.details)
+            if (report == null || report.entries.isEmpty()) {
+                ExternalSafetyState.NoMatch
+            } else {
+                ExternalSafetyState.Loaded(report)
+            }
+        } catch (error: Throwable) {
+            error.toExternalSafetyState()
+        }
+        val current = remoteDetail.value as? RemoteDetailUiState.Loaded ?: return
+        if (current.details.result.tmdbId != loaded.details.result.tmdbId || current.details.result.mediaType != loaded.details.result.mediaType) return
+        val externalEntries = (state as? ExternalSafetyState.Loaded)?.report?.toRatingEntries(current.details.remoteKey()).orEmpty()
+        val localEntries = current.reports.map { it.toEntry() }
+        val allEntries = localEntries + externalEntries
+        remoteDetail.value = current.copy(
+            externalSafety = state,
+            summary = ratingEngine.summarize(allEntries),
+            fit = fitEngine.evaluate(allEntries, uiState.value.sensitivities)
+        )
     }
 
     fun setSpoilerFreeMode(enabled: Boolean) {
@@ -465,6 +504,19 @@ private fun Throwable.toSearchUiState(query: String): RemoteSearchUiState = when
     is TmdbSearchError.Parsing -> RemoteSearchUiState.ServerError(query, "TMDB returned data this build could not read.")
     else -> RemoteSearchUiState.ServerError(query, message ?: "Search failed. Try again.")
 }
+
+private fun Throwable.toExternalSafetyState(): ExternalSafetyState = when (this) {
+    is DoesTheDogDieError.MissingApiKey -> ExternalSafetyState.NotConfigured
+    is DoesTheDogDieError.Authentication -> ExternalSafetyState.Error("DoesTheDogDie rejected the configured API key.")
+    is DoesTheDogDieError.UpgradeRequired -> ExternalSafetyState.UpgradeRequired("This DoesTheDogDie data requires a higher API tier.")
+    is DoesTheDogDieError.RateLimited -> ExternalSafetyState.Error("DoesTheDogDie rate limit was reached. Try again later.")
+    is DoesTheDogDieError.Offline -> ExternalSafetyState.Error("ContentLens could not reach DoesTheDogDie.")
+    is DoesTheDogDieError.Parsing -> ExternalSafetyState.Error("DoesTheDogDie returned data this build could not read.")
+    is DoesTheDogDieError.Server -> ExternalSafetyState.Error("DoesTheDogDie returned HTTP $statusCode.")
+    else -> ExternalSafetyState.Error(message ?: "Content safety data could not be loaded.")
+}
+
+private fun TmdbTitleDetails.remoteKey(): String = remoteMediaKey(result.tmdbId, result.mediaType)
 
 class ContentLensViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

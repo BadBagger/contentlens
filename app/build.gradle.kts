@@ -40,7 +40,7 @@ val contentLensApiBaseUrl = (
     localProperties.getProperty("contentLensApiBaseUrl")
         ?: localProperties.getProperty("CONTENTLENS_API_BASE_URL")
         ?: System.getenv("CONTENTLENS_API_BASE_URL")
-        ?: ""
+        ?: "https://contentlens-api.sassyboii69.chatgpt.site"
 ).trim()
 
 fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -53,8 +53,8 @@ android {
         applicationId = "com.smithware.contentlens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.3.1-live-safety-proxy"
+        versionCode = 14
+        versionName = "0.3.2-proxy-default"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", tmdbReadAccessToken.asBuildConfigString())

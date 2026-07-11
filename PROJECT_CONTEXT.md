@@ -5,10 +5,10 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.1-live-safety-proxy`
+- Latest published release: `v0.3.2-proxy-default`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
-- Backend: none for MVP
+- Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
 
 ## MVP Scope
 
@@ -33,7 +33,7 @@ Implemented MVP:
 - Real report sync backend
 - Moderation queue and trust signals
 - DoesTheDogDie commercial/tier review before any public/commercial distribution that relies on provider data
-- Deploy `backend/contentlens-api` and configure `contentLensApiBaseUrl` in public Android builds before expecting normal users to receive live provider warnings
+- Monitor the deployed `backend/contentlens-api` Sites proxy and consider a second backend host if production edge reachability remains unreliable.
 - Editable profile sensitivity UI
 - Timestamp-level entries
 - DevHub registry onboarding if ContentLens should appear in the Smithware store app
@@ -92,6 +92,10 @@ Implemented MVP:
 - `v0.3.1-live-safety-proxy`: deploys the ContentLens API to `https://contentlens-api.sassyboii69.chatgpt.site`, stores the DoesTheDogDie key server-side as a Sites secret, makes the API publicly reachable for Android clients, and builds the Android release with `contentLensApiBaseUrl` pointed at the live proxy.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.1-live-safety-proxy`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.1-live-safety-proxy.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.2-proxy-default`: makes the public Smithware safety proxy URL the checked-in Android default so public builds do not silently ship with an empty content-safety endpoint, refreshes the Sites deployment from source version 7, and updates safety-source copy to refer to the ContentLens proxy rather than only local DoesTheDogDie keys.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.2-proxy-default`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.2-proxy-default.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

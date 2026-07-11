@@ -39,7 +39,7 @@ ContentLens can use a Smithware-owned proxy API for provider-backed content safe
 contentLensApiBaseUrl=https://YOUR_CONTENTLENS_API_HOST
 ```
 
-Current deployed proxy:
+Current deployed proxy, also used as the checked-in public Android default:
 
 ```properties
 contentLensApiBaseUrl=https://contentlens-api.sassyboii69.chatgpt.site

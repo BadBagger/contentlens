@@ -627,13 +627,13 @@ private fun ExternalSafetySection(state: ExternalSafetyState) {
     SectionTitle("Content safety source")
     when (state) {
         ExternalSafetyState.NotConfigured -> InfoCard(
-            "DoesTheDogDie not configured",
-            "Add a local DoesTheDogDie API key to enable community content warnings. ContentLens will keep treating unknown categories as unknown."
+            "Content safety source not configured",
+            "ContentLens needs the Smithware safety proxy or a private local provider key to load community content warnings. Unknown categories remain unknown."
         )
-        ExternalSafetyState.Loading -> LoadingState("Checking content safety", "Looking for a DoesTheDogDie match for this title.")
+        ExternalSafetyState.Loading -> LoadingState("Checking content safety", "Looking for a community safety match for this title.")
         ExternalSafetyState.NoMatch -> EmptyState(
             "No external safety match",
-            "DoesTheDogDie did not return a matching movie or TV safety record for this TMDB title."
+            "The configured safety source did not return a matching movie or TV safety record for this TMDB title."
         )
         is ExternalSafetyState.UpgradeRequired -> InfoCard("Provider tier needed", state.message)
         is ExternalSafetyState.Error -> InfoCard("Safety source unavailable", state.message)

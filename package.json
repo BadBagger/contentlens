@@ -4,14 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build && node scripts/prepare-sites-dist.js",
-    "start": "next start",
+    "build": "node scripts/prepare-sites-dist.js",
+    "start": "node dist/server/index.js",
     "test:backend": "npm --prefix backend/contentlens-api test"
   },
-  "dependencies": {
-    "next": "^16.2.10",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
-  }
+  "dependencies": {}
 }

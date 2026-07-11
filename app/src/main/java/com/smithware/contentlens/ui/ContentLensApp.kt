@@ -55,6 +55,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -71,6 +72,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.smithware.contentlens.data.ContentRatingEntryEntity
@@ -184,27 +187,40 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
 private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpenReport: () -> Unit) {
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
+    var searchField by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(state.query, selection = TextRange(state.query.length)))
+    }
+    LaunchedEffect(state.query) {
+        if (state.query != searchField.text) {
+            searchField = TextFieldValue(state.query, selection = TextRange(state.query.length))
+        }
+    }
     fun closeKeyboard() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
     }
-    val results = remember(state.query, state.titles) {
-        state.titles.filter { it.title.contains(state.query, ignoreCase = true) || state.query.isBlank() }
+    val searchText = searchField.text
+    val results = remember(searchText, state.titles) {
+        state.titles.filter { it.title.contains(searchText, ignoreCase = true) || searchText.isBlank() }
     }
     Column(Modifier.fillMaxSize().imePadding().padding(18.dp)) {
         Header("Search", "Find local demo movies and shows, then inspect the specific content notes.")
         OutlinedTextField(
-            value = state.query,
-            onValueChange = viewModel::updateQuery,
+            value = searchField,
+            onValueChange = {
+                searchField = it
+                viewModel.updateQuery(it.text)
+            },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
             label = { Text("Search titles") },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
             trailingIcon = {
-                if (state.query.isNotBlank()) {
+                if (searchText.isNotBlank()) {
                     Icon(
                         Icons.Outlined.Close,
                         contentDescription = "Clear search",
                         modifier = Modifier.clickable {
+                            searchField = TextFieldValue("")
                             viewModel.updateQuery("")
                             focusManager.clearFocus()
                             keyboardController?.hide()
@@ -252,6 +268,7 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
                 TextButton(
                     onClick = {
                         closeKeyboard()
+                        searchField = TextFieldValue("")
                         viewModel.updateQuery("")
                     }
                 ) {

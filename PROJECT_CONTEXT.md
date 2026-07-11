@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.1.2-search-control-fix`
+- Latest published release: `v0.1.3-search-cursor-fix`
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -46,4 +46,8 @@ Implemented MVP:
 - `v0.1.2-search-control-fix`: makes the Search page less dependent on keyboard IME behavior by disabling autocorrect/capitalization, adding an explicit on-screen Search button that force-hides the keyboard, adding a Report title shortcut, and adding a clear-search action in the no-results state.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.2-search-control-fix`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.2-search-control-fix.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.1.3-search-cursor-fix`: changes the Search field to use local `TextFieldValue` state so Gboard composing text no longer moves the cursor after the first typed letter, while still syncing the query text to search results.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.3-search-cursor-fix`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.3-search-cursor-fix.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`

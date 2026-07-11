@@ -24,6 +24,12 @@ val tmdbReadAccessToken = (
         ?: System.getenv("TMDB_READ_ACCESS_TOKEN")
         ?: ""
 ).trim()
+val tmdbApiKey = (
+    localProperties.getProperty("tmdbApiKey")
+        ?: localProperties.getProperty("TMDB_API_KEY")
+        ?: System.getenv("TMDB_API_KEY")
+        ?: ""
+).trim()
 
 fun String.asBuildConfigString(): String = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
@@ -40,6 +46,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", tmdbReadAccessToken.asBuildConfigString())
+        buildConfigField("String", "TMDB_API_KEY", tmdbApiKey.asBuildConfigString())
     }
 
     signingConfigs {

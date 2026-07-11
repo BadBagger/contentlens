@@ -20,12 +20,13 @@ Release builds require an ignored local `keystore.properties` file based on `key
 
 ## TMDB Search Configuration
 
-Remote movie and TV search uses TMDB. Add a TMDB API Read Access Token locally before building an APK that should return real media results:
+Remote movie and TV search uses TMDB. Add either a TMDB v3 API key or API Read Access Token locally before building an APK that should return real media results:
 
 ```properties
+tmdbApiKey=YOUR_TMDB_API_KEY
 tmdbReadAccessToken=YOUR_TMDB_READ_ACCESS_TOKEN
 ```
 
-The token can be stored in ignored `local.properties` or provided as the `TMDB_READ_ACCESS_TOKEN` environment variable. Do not commit API tokens.
+The key/token can be stored in ignored `local.properties` or provided as the `TMDB_API_KEY` / `TMDB_READ_ACCESS_TOKEN` environment variable. Do not commit API tokens.
 
 Without this configuration, the app builds and shows a Search not configured state instead of silently returning no results.

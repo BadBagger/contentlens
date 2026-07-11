@@ -325,7 +325,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 private fun Throwable.toSearchUiState(query: String): RemoteSearchUiState = when (this) {
     is TmdbSearchError.MissingToken -> RemoteSearchUiState.ConfigurationError(
         query,
-        "TMDB is not configured. Add tmdbReadAccessToken to local.properties or set TMDB_READ_ACCESS_TOKEN."
+        "TMDB is not configured. Add tmdbApiKey or tmdbReadAccessToken to local.properties."
     )
     is TmdbSearchError.Authentication -> RemoteSearchUiState.ConfigurationError(
         query,

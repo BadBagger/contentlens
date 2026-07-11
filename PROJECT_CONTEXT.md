@@ -5,8 +5,8 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.1.3-search-cursor-fix`
-- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented locally but not published; real result verification is blocked until a TMDB read access token is configured.
+- Latest published release: `v0.2.0-tmdb-search-artwork`
+- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -27,7 +27,7 @@ Implemented MVP:
 
 ## Future Needs
 
-- TMDB read access token configured through ignored `local.properties` or `TMDB_READ_ACCESS_TOKEN`
+- Continue Phase 3 title detail upgrade using TMDB detail, credits, release dates/certifications, similar titles, and watch providers.
 - Real report sync backend
 - Moderation queue and trust signals
 - Editable profile sensitivity UI
@@ -52,11 +52,16 @@ Implemented MVP:
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.1.3-search-cursor-fix`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.1.3-search-cursor-fix.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.2.0-tmdb-search-artwork`: adds real TMDB movie and TV search with poster-card results, image configuration, poster loading/fallbacks, distinct search/error states, pagination, API-key and bearer-token auth support, TMDB attribution, and tests for response normalization, image URL construction, auth/server errors, URL encoding, and missing configuration.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.0-tmdb-search-artwork`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.0-tmdb-search-artwork.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- Real TMDB verification passed for `Breaking Bad`, `The Office`, `The Lion King`, `Moana`, `Stranger Things`, and `Bluey`; each returned movie/TV results and a TMDB poster URL returning HTTP 200 `image/jpeg`.
 
 ## Phase 1/2 Search Repair Notes
 
 - Root cause of the original search failure: Search only filtered the seeded local demo `MediaTitleEntity` list in memory. It did not call a remote movie database, did not have network permission, did not normalize TMDB movie/TV responses, and did not have poster image loading.
-- Implemented a TMDB client that calls `/search/movie` and `/search/tv` concurrently, URL-encodes search text, uses bearer-token auth from local build configuration, fetches TMDB image configuration, and distinguishes offline, authentication/configuration, parsing, server, no-results, loading, waiting, and initial states.
+- Implemented a TMDB client that calls `/search/movie` and `/search/tv` concurrently, URL-encodes search text, uses v3 API-key auth or bearer-token auth from local build configuration, fetches TMDB image configuration, and distinguishes offline, authentication/configuration, parsing, server, no-results, loading, waiting, and initial states.
 - Implemented normalized search results with `tmdbId`, media type, title/original title, overview, poster/backdrop paths, release date/year, genres, popularity, vote data, adult flag, and original language.
 - Implemented centralized image URL construction and poster-card search results with Coil image loading, crossfade, memory/disk cache keys, fixed poster aspect ratio, and fallback artwork.
 - Added unit tests for movie normalization, TV normalization, missing title handling, image URL construction, missing token handling, auth/server error handling, and URL-encoded search requests.

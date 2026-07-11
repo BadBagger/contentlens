@@ -11,7 +11,7 @@ class TmdbClientTest {
     @Test
     fun missingTokenThrowsConfigurationError() = runBlocking {
         val error = runCatching {
-            TmdbClient(readAccessToken = "").searchAll("Moana")
+            TmdbClient(readAccessToken = "", apiKey = "").searchAll("Moana")
         }.exceptionOrNull()
 
         assertTrue(error is TmdbSearchError.MissingToken)
@@ -51,6 +51,18 @@ class TmdbClientTest {
 
             assertEquals("The Lion King", page.results.single().title)
             assertTrue(paths.single().contains("query=The+Lion+King"))
+        }
+    }
+
+    @Test
+    fun apiKeyAuthenticationAppendsApiKeyWithoutBearerToken() = runBlocking {
+        withServer(status = 200, body = """{"page":1,"total_pages":1,"total_results":0,"results":[]}""") { baseUrl, paths ->
+            TmdbClient(readAccessToken = "", apiKey = "abc123", baseUrl = baseUrl)
+                .search(RemoteMediaType.Tv, "Bluey")
+
+            val path = paths.single()
+            assertTrue(path.contains("query=Bluey"))
+            assertTrue(path.contains("api_key=abc123"))
         }
     }
 

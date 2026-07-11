@@ -14,11 +14,12 @@ import java.net.URLEncoder
 
 class TmdbClient(
     private val readAccessToken: String = BuildConfig.TMDB_READ_ACCESS_TOKEN,
+    private val apiKey: String = BuildConfig.TMDB_API_KEY,
     private val baseUrl: String = "https://api.themoviedb.org/3"
 ) {
     suspend fun searchAll(query: String, page: Int = 1): Pair<TmdbSearchPage, TmdbImageConfiguration> {
         val trimmed = query.trim()
-        if (readAccessToken.isBlank()) throw TmdbSearchError.MissingToken()
+        if (readAccessToken.isBlank() && apiKey.isBlank()) throw TmdbSearchError.MissingToken()
         return coroutineScope {
             val movie = async { search(RemoteMediaType.Movie, trimmed, page) }
             val tv = async { search(RemoteMediaType.Tv, trimmed, page) }
@@ -46,7 +47,7 @@ class TmdbClient(
         }
         val encodedQuery = URLEncoder.encode(query, Charsets.UTF_8.name())
         val safePage = page.coerceAtLeast(1)
-        val path = "$endpoint?query=$encodedQuery&page=$safePage&include_adult=false&language=en-US"
+        val path = withApiKey("$endpoint?query=$encodedQuery&page=$safePage&include_adult=false&language=en-US")
         try {
             TmdbNormalizer.parseSearchPage(get(path), mediaType)
         } catch (error: JSONException) {
@@ -68,12 +69,15 @@ class TmdbClient(
     }
 
     private fun get(path: String): String {
-        val url = URL(baseUrl.trimEnd('/') + path)
+        val authenticatedPath = withApiKey(path)
+        val url = URL(baseUrl.trimEnd('/') + authenticatedPath)
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 10_000
             readTimeout = 15_000
-            setRequestProperty("Authorization", "Bearer $readAccessToken")
+            if (readAccessToken.isNotBlank()) {
+                setRequestProperty("Authorization", "Bearer $readAccessToken")
+            }
             setRequestProperty("Accept", "application/json")
         }
         return try {
@@ -82,25 +86,32 @@ class TmdbClient(
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
                 val snippet = body.take(180)
-                SafeLog.warn(TAG, "TMDB request failed status=$status path=${path.substringBefore('?')} body=$snippet")
+                SafeLog.warn(TAG, "TMDB request failed status=$status path=${authenticatedPath.substringBefore('?')} body=$snippet")
                 if (status == 401 || status == 403) {
                     throw TmdbSearchError.Authentication(status, snippet)
                 }
                 throw TmdbSearchError.Server(status, snippet)
             }
-            SafeLog.debug(TAG, "TMDB request ok status=$status path=${path.substringBefore('?')}")
+            SafeLog.debug(TAG, "TMDB request ok status=$status path=${authenticatedPath.substringBefore('?')}")
             body
         } catch (error: TmdbSearchError) {
             throw error
         } catch (error: SocketTimeoutException) {
-            SafeLog.warn(TAG, "TMDB request timed out path=${path.substringBefore('?')}")
+            SafeLog.warn(TAG, "TMDB request timed out path=${authenticatedPath.substringBefore('?')}")
             throw TmdbSearchError.Offline(error)
         } catch (error: IOException) {
-            SafeLog.warn(TAG, "TMDB network failure path=${path.substringBefore('?')} message=${error.message}")
+            SafeLog.warn(TAG, "TMDB network failure path=${authenticatedPath.substringBefore('?')} message=${error.message}")
             throw TmdbSearchError.Offline(error)
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun withApiKey(path: String): String {
+        if (readAccessToken.isNotBlank() || apiKey.isBlank() || path.contains("api_key=")) return path
+        val separator = if (path.contains("?")) "&" else "?"
+        val encodedKey = URLEncoder.encode(apiKey, Charsets.UTF_8.name())
+        return "$path${separator}api_key=$encodedKey"
     }
 
     private companion object {

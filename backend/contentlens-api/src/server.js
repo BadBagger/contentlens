@@ -210,7 +210,7 @@ function scrub(error) {
   return { message: error?.message, code: error?.code, status: error?.status };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && import.meta.url && process.argv[1] === fileURLToPath(import.meta.url)) {
   createServer().listen(PORT, () => {
     console.log(`ContentLens API listening on :${PORT}`);
   });

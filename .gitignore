@@ -4,6 +4,7 @@
 /app/build/
 /node_modules/
 /.next/
+/dist/
 /local.properties
 *.apk
 *.aab

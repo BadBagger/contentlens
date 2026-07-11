@@ -54,23 +54,29 @@ object DemoSeedData {
     )
 
     val profiles = listOf(
-        UserProfileEntity("parent", "Parent profile", "Extra review for gore, sexual content, and self-harm themes."),
-        UserProfileEntity("teen", "Teen profile", "Moderate sensitivity to intense violence and mature themes."),
-        UserProfileEntity("personal", "My personal profile", "A balanced profile for everyday viewing."),
-        UserProfileEntity("classroom", "Classroom profile", "Avoids strong language, sexual content, and graphic material.")
+        UserProfileEntity("main-user", "Main user", "Personal boundaries for everyday viewing."),
+        UserProfileEntity("partner", "Partner", "A separate adult viewing profile for shared decisions."),
+        UserProfileEntity("children", "Children", "Strict boundaries for child and family-safe viewing."),
+        UserProfileEntity("family", "Family viewing", "Combined household profile for mixed-age watching."),
+        UserProfileEntity("guests", "Guests", "Low-surprise settings for visitors.")
     )
 
     val sensitivities = buildList {
-        add(ProfileSensitivityEntity("parent", ContentCategory.BloodGore, Sensitivity.AvoidModeratePlus))
-        add(ProfileSensitivityEntity("parent", ContentCategory.SexualContent, Sensitivity.AvoidStrongPlus))
-        add(ProfileSensitivityEntity("parent", ContentCategory.SelfHarm, Sensitivity.AvoidModeratePlus))
-        add(ProfileSensitivityEntity("teen", ContentCategory.Violence, Sensitivity.MildConcern))
-        add(ProfileSensitivityEntity("teen", ContentCategory.MatureThemes, Sensitivity.MildConcern))
-        add(ProfileSensitivityEntity("personal", ContentCategory.JumpScares, Sensitivity.AvoidStrongPlus))
-        add(ProfileSensitivityEntity("personal", ContentCategory.FlashingLights, Sensitivity.AvoidAny))
-        add(ProfileSensitivityEntity("classroom", ContentCategory.Language, Sensitivity.AvoidModeratePlus))
-        add(ProfileSensitivityEntity("classroom", ContentCategory.SexualContent, Sensitivity.AvoidAny))
-        add(ProfileSensitivityEntity("classroom", ContentCategory.BloodGore, Sensitivity.AvoidAny))
+        add(ProfileSensitivityEntity("main-user", ContentCategory.JumpScares, Sensitivity.AvoidWhenPossible))
+        add(ProfileSensitivityEntity("main-user", ContentCategory.FlashingLights, Sensitivity.NeverShow))
+        add(ProfileSensitivityEntity("partner", ContentCategory.Gore, Sensitivity.WarnMe))
+        add(ProfileSensitivityEntity("partner", ContentCategory.Horror, Sensitivity.AvoidWhenPossible))
+        add(ProfileSensitivityEntity("children", ContentCategory.Nudity, Sensitivity.NeverShow))
+        add(ProfileSensitivityEntity("children", ContentCategory.SexualContent, Sensitivity.NeverShow))
+        add(ProfileSensitivityEntity("children", ContentCategory.GraphicViolence, Sensitivity.NeverShow))
+        add(ProfileSensitivityEntity("children", ContentCategory.Gore, Sensitivity.NeverShow))
+        add(ProfileSensitivityEntity("children", ContentCategory.Suicide, Sensitivity.UnknownRequiresApproval))
+        add(ProfileSensitivityEntity("children", ContentCategory.SelfHarm, Sensitivity.UnknownRequiresApproval))
+        add(ProfileSensitivityEntity("family", ContentCategory.Profanity, Sensitivity.WarnMe))
+        add(ProfileSensitivityEntity("family", ContentCategory.AlcoholUse, Sensitivity.WarnMe))
+        add(ProfileSensitivityEntity("family", ContentCategory.DrugUse, Sensitivity.AvoidWhenPossible))
+        add(ProfileSensitivityEntity("guests", ContentCategory.SexualContent, Sensitivity.WarnMe))
+        add(ProfileSensitivityEntity("guests", ContentCategory.LoudSuddenSounds, Sensitivity.WarnMe))
     }
 
     private fun entry(

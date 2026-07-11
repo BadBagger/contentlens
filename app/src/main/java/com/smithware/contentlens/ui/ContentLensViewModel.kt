@@ -30,11 +30,14 @@ import com.smithware.contentlens.data.tmdb.TmdbSearchError
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.domain.ContentCategory
+import com.smithware.contentlens.domain.BoundaryEvaluation
+import com.smithware.contentlens.domain.BoundaryStatus
 import com.smithware.contentlens.domain.FitLabel
 import com.smithware.contentlens.domain.LensRating
 import com.smithware.contentlens.domain.LocalPersonalFitEngine
 import com.smithware.contentlens.domain.LocalRatingEngine
 import com.smithware.contentlens.domain.RatingSummary
+import com.smithware.contentlens.domain.Sensitivity
 import com.smithware.contentlens.domain.Severity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +49,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.util.UUID
 
 data class TitleLens(
@@ -53,6 +57,7 @@ data class TitleLens(
     val entries: List<ContentRatingEntryEntity> = emptyList(),
     val summary: RatingSummary = RatingSummary(LensRating.InsufficientData, emptyList(), 0),
     val fit: FitLabel = FitLabel.InsufficientData,
+    val boundary: BoundaryEvaluation = BoundaryEvaluation(true, BoundaryStatus.InsufficientInformation, 45),
     val isWatchlisted: Boolean = false
 )
 
@@ -62,6 +67,8 @@ data class AppUiState(
     val selectedTitle: TitleLens? = null,
     val profiles: List<UserProfileEntity> = emptyList(),
     val sensitivities: List<ProfileSensitivityEntity> = emptyList(),
+    val allSensitivities: List<ProfileSensitivityEntity> = emptyList(),
+    val activeProfileIds: Set<String> = emptySet(),
     val watchlist: List<WatchlistItemEntity> = emptyList(),
     val reports: List<ContentReportEntity> = emptyList(),
     val remoteReports: List<RemoteContentReportEntity> = emptyList(),
@@ -151,7 +158,8 @@ sealed class RemoteDetailUiState {
         val reports: List<RemoteContentReportEntity> = emptyList(),
         val externalSafety: ExternalSafetyState = ExternalSafetyState.NotConfigured,
         val summary: RatingSummary = RatingSummary(LensRating.InsufficientData, emptyList(), 0),
-        val fit: FitLabel = FitLabel.InsufficientData
+        val fit: FitLabel = FitLabel.InsufficientData,
+        val boundary: BoundaryEvaluation = BoundaryEvaluation(true, BoundaryStatus.InsufficientInformation, 45)
     ) : RemoteDetailUiState()
     data class Error(val result: NormalizedMediaResult, val message: String) : RemoteDetailUiState()
 }
@@ -168,7 +176,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val featuredFeedClient = FeaturedFeedClient(application.applicationContext)
 
     private val selectedTitleId = MutableStateFlow<String?>(null)
-    private val selectedProfileId = MutableStateFlow<String?>(null)
+    private val selectedProfileIds = MutableStateFlow<Set<String>>(emptySet())
     private val query = MutableStateFlow("")
     private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
     private val remoteSafety = MutableStateFlow<Map<String, ExternalSafetyState>>(emptyMap())
@@ -186,19 +194,23 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             val reportBase = combine(dao.observeReports(), dao.observeRemoteReports()) { reports, remoteReports ->
                 ReportBase(reports, remoteReports)
             }
+            val profileBase = combine(dao.observeProfiles(), dao.observeAllSensitivities()) { profiles, sensitivities ->
+                ProfileBase(profiles, sensitivities)
+            }
             val storedBase = combine(
                 dao.observeTitles(),
-                dao.observeProfiles(),
+                profileBase,
                 dao.observeWatchlistItems(),
                 reportBase,
                 settingsStore.settings
-            ) { titles, profiles, watchlist, reports, settings ->
-                StoredBase(titles, profiles, watchlist, reports.reports, reports.remoteReports, settings)
+            ) { titles, profileState, watchlist, reports, settings ->
+                StoredBase(titles, profileState.profiles, profileState.sensitivities, watchlist, reports.reports, reports.remoteReports, settings)
             }
             val storedState = combine(storedBase, remoteSearch, remoteSafety, discoverySections) { stored, searchState, safetyState, discovery ->
                 StoredState(
                     titles = stored.titles,
                     profiles = stored.profiles,
+                    allSensitivities = stored.allSensitivities,
                     watchlist = stored.watchlist,
                     reports = stored.reports,
                     remoteReports = stored.remoteReports,
@@ -211,21 +223,23 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             val appStoredState = combine(storedState, remoteDetail) { stored, detail ->
                 AppStoredState(stored, detail)
             }
-            val controls = combine(selectedTitleId, selectedProfileId, query) { titleId, profileId, search ->
-                ControlState(titleId, profileId, search)
+            val controls = combine(selectedTitleId, selectedProfileIds, query) { titleId, profileIds, search ->
+                ControlState(titleId, profileIds, search)
             }
             combine(appStoredState, controls) { storedWithDetail, control ->
                 val stored = storedWithDetail.stored
-                val activeProfileId = control.selectedProfileId ?: stored.settings.defaultProfileId ?: stored.profiles.firstOrNull()?.id
+                val fallbackProfileId = stored.settings.defaultProfileId ?: stored.profiles.firstOrNull()?.id
+                val activeProfileIds = control.selectedProfileIds.ifEmpty { fallbackProfileId?.let { setOf(it) } ?: emptySet() }
                 BaseState(
                     titles = stored.titles,
                     profiles = stored.profiles,
+                    allSensitivities = stored.allSensitivities,
                     watchlist = stored.watchlist,
                     reports = stored.reports,
                     remoteReports = stored.remoteReports,
                     settings = stored.settings,
                     selectedTitleId = control.selectedTitleId,
-                    activeProfileId = activeProfileId,
+                    activeProfileIds = activeProfileIds,
                     query = control.query,
                     remoteSearch = stored.remoteSearch,
                     remoteSafety = stored.remoteSafety,
@@ -235,8 +249,9 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             }.flatMapLatest { base ->
                 val titleId = base.selectedTitleId
                 val entriesFlow = titleId?.let { dao.observeEntries(it) } ?: flowOf(emptyList())
-                val sensitivityFlow = base.activeProfileId?.let { dao.observeSensitivities(it) } ?: flowOf(emptyList())
-                combine(entriesFlow, sensitivityFlow) { entries, sensitivities ->
+                entriesFlow.combine(flowOf(Unit)) { entries, _ ->
+                    val activeProfiles = base.profiles.filter { it.id in base.activeProfileIds }
+                    val sensitivities = base.allSensitivities.filter { it.profileId in base.activeProfileIds }
                     val selected = base.titles.firstOrNull { it.id == titleId }
                     val remoteDetail = (base.remoteDetail as? RemoteDetailUiState.Loaded)?.let { loaded ->
                         val entries = loaded.reports.map { it.toEntry() }
@@ -247,15 +262,18 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         val allEntries = entries + externalEntries
                         loaded.copy(
                             summary = ratingEngine.summarize(allEntries),
-                            fit = fitEngine.evaluate(allEntries, sensitivities)
+                            fit = fitEngine.evaluate(allEntries, sensitivities),
+                            boundary = fitEngine.evaluateDetailed(allEntries, sensitivities, activeProfiles)
                         )
                     } ?: base.remoteDetail
                     val titleLens = selected?.let {
+                        val boundary = fitEngine.evaluateDetailed(entries, sensitivities, activeProfiles)
                         TitleLens(
                             title = it,
                             entries = entries,
                             summary = ratingEngine.summarize(entries),
                             fit = fitEngine.evaluate(entries, sensitivities),
+                            boundary = boundary,
                             isWatchlisted = base.watchlist.any { item -> item.titleId == it.id }
                         )
                     }
@@ -265,6 +283,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         selectedTitle = titleLens,
                         profiles = base.profiles,
                         sensitivities = sensitivities,
+                        allSensitivities = base.allSensitivities,
+                        activeProfileIds = base.activeProfileIds,
                         watchlist = base.watchlist,
                         reports = base.reports,
                         remoteReports = base.remoteReports,
@@ -302,7 +322,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     reports = reports,
                     externalSafety = cachedSafety ?: ExternalSafetyState.Loading,
                     summary = ratingEngine.summarize(localEntries),
-                    fit = fitEngine.evaluate(localEntries, uiState.value.sensitivities)
+                    fit = fitEngine.evaluate(localEntries, uiState.value.sensitivities),
+                    boundary = fitEngine.evaluateDetailed(localEntries, uiState.value.sensitivities, uiState.value.profiles.filter { it.id in uiState.value.activeProfileIds })
                 )
                 remoteDetail.value = loaded
                 if (cachedSafety !is ExternalSafetyState.Loaded && cachedSafety !is ExternalSafetyState.NoMatch) {
@@ -327,8 +348,64 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun selectProfile(id: String) {
-        selectedProfileId.value = id
+        selectedProfileIds.value = setOf(id)
         viewModelScope.launch { settingsStore.setDefaultProfile(id) }
+    }
+
+    fun toggleProfileForViewing(id: String) {
+        val current = selectedProfileIds.value
+        selectedProfileIds.value = if (id in current) {
+            (current - id).ifEmpty { setOf(id) }
+        } else {
+            current + id
+        }
+    }
+
+    fun updateProfileBoundary(profileId: String, category: ContentCategory, sensitivity: Sensitivity) {
+        viewModelScope.launch {
+            dao.upsertSensitivities(listOf(ProfileSensitivityEntity(profileId, category, sensitivity)))
+        }
+    }
+
+    fun restorePreferenceBackup(json: String) {
+        viewModelScope.launch {
+            runCatching {
+                val root = JSONObject(json)
+                val profilesJson = root.optJSONArray("profiles") ?: return@runCatching
+                val profiles = buildList {
+                    for (index in 0 until profilesJson.length()) {
+                        val item = profilesJson.optJSONObject(index) ?: continue
+                        val id = item.optString("id").ifBlank { continue }
+                        add(
+                            UserProfileEntity(
+                                id = id,
+                                name = item.optString("name").ifBlank { id },
+                                description = item.optString("description").ifBlank { "Restored local viewing profile." }
+                            )
+                        )
+                    }
+                }
+                val sensitivities = buildList {
+                    for (index in 0 until profilesJson.length()) {
+                        val item = profilesJson.optJSONObject(index) ?: continue
+                        val profileId = item.optString("id").ifBlank { continue }
+                        val boundaries = item.optJSONArray("boundaries") ?: continue
+                        for (boundaryIndex in 0 until boundaries.length()) {
+                            val boundary = boundaries.optJSONObject(boundaryIndex) ?: continue
+                            val category = runCatching { ContentCategory.valueOf(boundary.optString("category")) }.getOrNull() ?: continue
+                            val sensitivity = runCatching { Sensitivity.valueOf(boundary.optString("sensitivity")) }.getOrNull() ?: continue
+                            add(ProfileSensitivityEntity(profileId, category, sensitivity))
+                        }
+                    }
+                }
+                if (profiles.isNotEmpty()) {
+                    dao.upsertProfiles(profiles)
+                    profiles.forEach { dao.deleteSensitivitiesForProfile(it.id) }
+                    dao.upsertSensitivities(sensitivities)
+                    selectedProfileIds.value = profiles.map { it.id }.take(1).toSet()
+                }
+            }
+        }
     }
 
     fun updateQuery(value: String) {
@@ -487,7 +564,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 remoteDetail.value = loaded.copy(
                     reports = reports,
                     summary = ratingEngine.summarize(entries),
-                    fit = fitEngine.evaluate(entries, uiState.value.sensitivities)
+                    fit = fitEngine.evaluate(entries, uiState.value.sensitivities),
+                    boundary = fitEngine.evaluateDetailed(entries, uiState.value.sensitivities, uiState.value.profiles.filter { it.id in uiState.value.activeProfileIds })
                 )
             }
         }
@@ -512,7 +590,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         remoteDetail.value = current.copy(
             externalSafety = state,
             summary = ratingEngine.summarize(allEntries),
-            fit = fitEngine.evaluate(allEntries, uiState.value.sensitivities)
+            fit = fitEngine.evaluate(allEntries, uiState.value.sensitivities),
+            boundary = fitEngine.evaluateDetailed(allEntries, uiState.value.sensitivities, uiState.value.profiles.filter { it.id in uiState.value.activeProfileIds })
         )
         remoteSafety.value = remoteSafety.value + (current.details.remoteKey() to state)
     }
@@ -570,12 +649,13 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private data class BaseState(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
+        val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
         val selectedTitleId: String?,
-        val activeProfileId: String?,
+        val activeProfileIds: Set<String>,
         val query: String,
         val remoteSearch: RemoteSearchUiState,
         val remoteSafety: Map<String, ExternalSafetyState>,
@@ -586,6 +666,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private data class StoredState(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
+        val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
@@ -605,9 +686,15 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val remoteReports: List<RemoteContentReportEntity>
     )
 
+    private data class ProfileBase(
+        val profiles: List<UserProfileEntity>,
+        val sensitivities: List<ProfileSensitivityEntity>
+    )
+
     private data class StoredBase(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
+        val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
@@ -616,7 +703,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     private data class ControlState(
         val selectedTitleId: String?,
-        val selectedProfileId: String?,
+        val selectedProfileIds: Set<String>,
         val query: String
     )
 }

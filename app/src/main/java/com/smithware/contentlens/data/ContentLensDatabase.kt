@@ -45,6 +45,9 @@ interface ContentLensDao {
     @Query("SELECT * FROM profile_sensitivities WHERE profileId = :profileId")
     fun observeSensitivities(profileId: String): Flow<List<ProfileSensitivityEntity>>
 
+    @Query("SELECT * FROM profile_sensitivities")
+    fun observeAllSensitivities(): Flow<List<ProfileSensitivityEntity>>
+
     @Query("SELECT * FROM profile_sensitivities WHERE profileId = :profileId")
     suspend fun getSensitivities(profileId: String): List<ProfileSensitivityEntity>
 
@@ -62,6 +65,9 @@ interface ContentLensDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSensitivities(items: List<ProfileSensitivityEntity>)
+
+    @Query("DELETE FROM profile_sensitivities WHERE profileId = :profileId")
+    suspend fun deleteSensitivitiesForProfile(profileId: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertReport(item: ContentReportEntity)

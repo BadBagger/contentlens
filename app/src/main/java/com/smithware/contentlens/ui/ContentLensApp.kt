@@ -95,6 +95,7 @@ import coil.request.ImageRequest
 import com.smithware.contentlens.data.ContentRatingEntryEntity
 import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
+import com.smithware.contentlens.data.ProfileSensitivityEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.safety.ExternalSafetyEntry
 import com.smithware.contentlens.data.safety.ExternalSafetyState
@@ -105,11 +106,17 @@ import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.data.tmdb.TmdbWatchProvider
 import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.data.UserProfileEntity
+import com.smithware.contentlens.domain.BoundaryEvaluation
+import com.smithware.contentlens.domain.BoundaryStatus
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
 import com.smithware.contentlens.domain.LensRating
+import com.smithware.contentlens.domain.LocalPersonalFitEngine
+import com.smithware.contentlens.domain.Sensitivity
 import com.smithware.contentlens.domain.Severity
 import com.smithware.contentlens.domain.certificationToLensRating
+import org.json.JSONArray
+import org.json.JSONObject
 
 private enum class Screen(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Outlined.Home),
@@ -421,6 +428,8 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
                 state = state.remoteSearch,
                 remoteReports = state.remoteReports,
                 remoteSafety = state.remoteSafety,
+                profiles = state.profiles.filter { it.id in state.activeProfileIds },
+                sensitivities = state.sensitivities,
                 onRetry = {
                     closeKeyboard()
                     viewModel.retrySearch()
@@ -455,11 +464,14 @@ private fun RemoteSearchContent(
     state: RemoteSearchUiState,
     remoteReports: List<RemoteContentReportEntity>,
     remoteSafety: Map<String, ExternalSafetyState>,
+    profiles: List<UserProfileEntity>,
+    sensitivities: List<ProfileSensitivityEntity>,
     onRetry: () -> Unit,
     onClear: () -> Unit,
     onLoadMore: () -> Unit,
     onResultClick: (NormalizedMediaResult) -> Unit
 ) {
+    val fitEngine = remember { LocalPersonalFitEngine() }
     when (state) {
         RemoteSearchUiState.Initial -> EmptyState("Search movies and TV", "Type at least two characters to search TMDB for movies and shows.")
         is RemoteSearchUiState.Waiting -> EmptyState("Ready to search", "Keep typing or tap Search. Requests wait briefly so stale searches are cancelled.")
@@ -471,7 +483,18 @@ private fun RemoteSearchContent(
         is RemoteSearchUiState.Offline -> RetryState("Offline", "ContentLens could not reach TMDB. Check your connection and try again.", onRetry)
         is RemoteSearchUiState.ConfigurationError -> RetryState("Search not configured", state.message, onRetry)
         is RemoteSearchUiState.ServerError -> RetryState("Search error", state.message, onRetry)
-        is RemoteSearchUiState.Results -> LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        is RemoteSearchUiState.Results -> {
+            var showFiltered by rememberSaveable(state.query) { mutableStateOf(false) }
+            val evaluated = state.results.map { result ->
+                val key = remoteMediaKey(result.tmdbId, result.mediaType)
+                val reports = remoteReports.filter { it.remoteKey == key }
+                val safety = remoteSafety[key]
+                val boundary = searchBoundaryFor(result, reports, safety, profiles, sensitivities, fitEngine)
+                SearchBoundaryResult(result, reports, safety, boundary)
+            }
+            val visible = if (showFiltered) evaluated else evaluated.filter { it.boundary.eligible }
+            val hiddenCount = evaluated.size - visible.size
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
@@ -484,15 +507,21 @@ private fun RemoteSearchContent(
                         color = Color(0xFF64748B),
                         style = MaterialTheme.typography.bodySmall
                     )
+                    if (hiddenCount > 0) {
+                        TextButton(onClick = { showFiltered = !showFiltered }) {
+                            Text(if (showFiltered) "Hide filtered titles" else "Show $hiddenCount filtered titles")
+                        }
+                    }
                 }
             }
-            items(state.results, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
+            items(visible, key = { "${it.result.mediaType}-${it.result.tmdbId}" }) { evaluatedResult ->
                 RemotePosterResultCard(
-                    result = result,
+                    result = evaluatedResult.result,
                     imageUrlBuilder = state.imageUrlBuilder,
-                    reports = remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) },
-                    safety = remoteSafety[remoteMediaKey(result.tmdbId, result.mediaType)],
-                    onClick = { onResultClick(result) }
+                    reports = evaluatedResult.reports,
+                    safety = evaluatedResult.safety,
+                    boundary = evaluatedResult.boundary,
+                    onClick = { onResultClick(evaluatedResult.result) }
                 )
             }
             if (state.hasMore) {
@@ -511,6 +540,7 @@ private fun RemoteSearchContent(
                 }
             }
         }
+        }
     }
 }
 
@@ -520,6 +550,7 @@ private fun RemotePosterResultCard(
     imageUrlBuilder: ImageUrlBuilder,
     reports: List<RemoteContentReportEntity> = emptyList(),
     safety: ExternalSafetyState? = null,
+    boundary: BoundaryEvaluation = BoundaryEvaluation(true, BoundaryStatus.InsufficientInformation, 45),
     onClick: () -> Unit
 ) {
     val topWarning = when (safety) {
@@ -563,7 +594,7 @@ private fun RemotePosterResultCard(
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     AgeRatingBadge("Rating pending")
-                    MatchBadge("Title match")
+                    BoundaryBadge(boundary)
                     if (reports.isEmpty()) {
                         SearchSafetyChips(safety)
                     } else {
@@ -574,10 +605,18 @@ private fun RemotePosterResultCard(
                     topWarning?.let { ContentWarningBadge("${it.category.label}: ${it.severity.label}") }
                     ProviderStatusBadge()
                 }
+                Text(boundary.explanation, color = boundaryColor(boundary.status), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
+
+private data class SearchBoundaryResult(
+    val result: NormalizedMediaResult,
+    val reports: List<RemoteContentReportEntity>,
+    val safety: ExternalSafetyState?,
+    val boundary: BoundaryEvaluation
+)
 
 @Composable
 private fun SearchSkeletonList() {
@@ -665,6 +704,22 @@ private fun MatchBadge(label: String) {
 }
 
 @Composable
+private fun BoundaryBadge(boundary: BoundaryEvaluation) {
+    AssistChip(
+        onClick = {},
+        leadingIcon = {
+            Icon(
+                if (boundary.eligible) Icons.Outlined.CheckCircle else Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = boundaryColor(boundary.status)
+            )
+        },
+        label = { Text("${boundary.compatibilityScore}% / ${boundary.status.label}") }
+    )
+}
+
+@Composable
 private fun ContentWarningBadge(label: String) {
     AssistChip(
         onClick = {},
@@ -690,6 +745,52 @@ private fun GenreChip(label: String) {
         label = { Text(label) }
     )
 }
+
+private fun boundaryColor(status: BoundaryStatus): Color = when (status) {
+    BoundaryStatus.Safe -> Color(0xFF0F766E)
+    BoundaryStatus.Warning -> Color(0xFFA16207)
+    BoundaryStatus.Conflict -> Color(0xFFB45309)
+    BoundaryStatus.InsufficientInformation -> Color(0xFF64748B)
+    BoundaryStatus.Blocked -> Color(0xFFB91C1C)
+}
+
+private fun searchBoundaryFor(
+    result: NormalizedMediaResult,
+    reports: List<RemoteContentReportEntity>,
+    safety: ExternalSafetyState?,
+    profiles: List<UserProfileEntity>,
+    sensitivities: List<ProfileSensitivityEntity>,
+    fitEngine: LocalPersonalFitEngine
+): BoundaryEvaluation {
+    if (sensitivities.isEmpty()) {
+        return BoundaryEvaluation(true, BoundaryStatus.Safe, 92, explanation = "Safe for your selected profiles. No profile boundaries are active.")
+    }
+    val key = remoteMediaKey(result.tmdbId, result.mediaType)
+    val entries = reports.map { it.toRatingEntry() } + ((safety as? ExternalSafetyState.Loaded)?.report?.toRatingEntries(key).orEmpty())
+    if (entries.isNotEmpty()) return fitEngine.evaluateDetailed(entries, sensitivities, profiles)
+    return when (safety) {
+        null,
+        ExternalSafetyState.Loading -> BoundaryEvaluation(
+            eligible = true,
+            status = BoundaryStatus.InsufficientInformation,
+            compatibilityScore = 50,
+            explanation = "Insufficient content information. Safety data is still loading."
+        )
+        else -> fitEngine.evaluateDetailed(emptyList(), sensitivities, profiles)
+    }
+}
+
+private fun RemoteContentReportEntity.toRatingEntry(): ContentRatingEntryEntity = ContentRatingEntryEntity(
+    id = id,
+    titleId = remoteKey,
+    category = category,
+    severity = severity,
+    explanation = explanation,
+    spoilerNote = spoilerNote,
+    season = season,
+    episode = episode,
+    source = source
+)
 
 @Composable
 private fun SearchSafetyChips(safety: ExternalSafetyState?) {
@@ -753,6 +854,7 @@ private fun RemoteTitleDetail(
                 reports = detail.reports,
                 summary = detail.summary,
                 fit = detail.fit,
+                boundary = detail.boundary,
                 externalSafety = detail.externalSafety,
                 spoilerFreeMode = spoilerFreeMode,
                 showSpoilers = showSpoilers,
@@ -837,6 +939,7 @@ private fun RemoteRatingReport(
     reports: List<RemoteContentReportEntity>,
     summary: com.smithware.contentlens.domain.RatingSummary,
     fit: FitLabel,
+    boundary: BoundaryEvaluation,
     externalSafety: ExternalSafetyState,
     spoilerFreeMode: Boolean,
     showSpoilers: Boolean,
@@ -853,8 +956,16 @@ private fun RemoteRatingReport(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("Official: ${certification ?: "Unknown"}") })
                 AssistChip(onClick = {}, label = { Text("ContentLens: ${(if (summary.entryCount > 0) summary.rating else preliminary).label}") })
-                AssistChip(onClick = {}, label = { Text(fit.label) })
+                BoundaryBadge(boundary)
                 AssistChip(onClick = {}, label = { Text(confidenceLabel(reports, externalSafety)) })
+            }
+            Text(boundary.explanation, color = boundaryColor(boundary.status), fontWeight = FontWeight.SemiBold)
+            if (boundary.blockedReasons.isNotEmpty() || boundary.warningReasons.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    (boundary.blockedReasons + boundary.warningReasons).take(3).forEach {
+                        Text(it, color = Color(0xFF475569), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
             if (!hasAnyWarnings) {
                 Text(
@@ -1299,34 +1410,64 @@ private fun WatchlistScreen(state: AppUiState, viewModel: ContentLensViewModel) 
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfilesScreen(state: AppUiState, viewModel: ContentLensViewModel) {
-    val activeProfile = state.settings.defaultProfileId ?: state.profiles.firstOrNull()?.id
+    val activeProfileIds = state.activeProfileIds
+    val editProfile = state.profiles.firstOrNull { it.id in activeProfileIds } ?: state.profiles.firstOrNull()
+    val editSensitivities = state.allSensitivities.filter { it.profileId == editProfile?.id }
     LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { Header("Profiles", "Sensitivity settings shape the Personal Fit Score.") }
+        item { Header("Profiles", "Choose who is watching, then set exact content boundaries.") }
         if (state.profiles.isEmpty()) {
             item { EmptyState("No profile created", "Create profiles later for parents, teens, classrooms, or personal viewing.") }
         } else {
+            item {
+                SectionTitle("Watching together")
+                Text(
+                    "When multiple profiles are selected, ContentLens uses the strictest relevant rule and explains which boundary was triggered.",
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             items(state.profiles, key = { it.id }) { profile ->
-                ProfileCard(profile, selected = profile.id == activeProfile) {
-                    viewModel.selectProfile(profile.id)
+                ProfileCard(profile, selected = profile.id in activeProfileIds) {
+                    viewModel.toggleProfileForViewing(profile.id)
                 }
             }
         }
         item {
-            SectionTitle("Active profile settings")
-            if (state.sensitivities.isEmpty()) {
-                EmptyState("No profile sensitivities", "This profile has no category limits yet.")
+            SectionTitle("Boundary editor")
+            if (editProfile == null) {
+                EmptyState("No profile selected", "Select at least one profile to edit content boundaries.")
             } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    state.sensitivities.forEach {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(it.category.label, fontWeight = FontWeight.Medium)
-                            Text(it.sensitivity.label, color = Color(0xFF475569))
-                        }
+                Text("Editing ${editProfile.name}", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 8.dp)) {
+                    boundaryCategories().forEach { category ->
+                        BoundaryControl(
+                            category = category,
+                            sensitivity = editSensitivities.firstOrNull { it.category == category }?.sensitivity ?: Sensitivity.Allow,
+                            onChange = { viewModel.updateProfileBoundary(editProfile.id, category, it) }
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BoundaryControl(category: ContentCategory, sensitivity: Sensitivity, onChange: (Sensitivity) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(category.label, fontWeight = FontWeight.SemiBold)
+            EnumDropdown(
+                label = "Boundary",
+                items = boundarySensitivityLevels(),
+                selected = sensitivity.toBoundaryLevel(),
+                itemLabel = { it.label },
+                onPick = onChange
+            )
         }
     }
 }
@@ -1403,6 +1544,8 @@ private fun SubmitReportScreen(state: AppUiState, viewModel: ContentLensViewMode
 
 @Composable
 private fun SettingsScreen(state: AppUiState, viewModel: ContentLensViewModel) {
+    val backupText = remember(state.profiles, state.allSensitivities) { preferencesBackupJson(state) }
+    var restoreText by rememberSaveable { mutableStateOf("") }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Header("Settings", "Local-first controls for privacy and display preferences.")
         SettingSwitch("Spoiler-free mode", "Detailed spoilers stay hidden behind tap-to-reveal.", state.settings.spoilerFreeMode, viewModel::setSpoilerFreeMode)
@@ -1424,6 +1567,34 @@ private fun SettingsScreen(state: AppUiState, viewModel: ContentLensViewModel) {
         }
         SectionTitle("Data/privacy")
         InfoCard("Local-first storage", "Titles, profiles, watchlist items, settings, and reports are stored on this device for the MVP. No login or backend is required.")
+        InfoCard("Secure preference storage", "Profile boundaries are stored in the app's private local database. Export only when you intentionally want a backup outside the app.")
+        SectionTitle("Export and restore boundaries")
+        OutlinedTextField(
+            value = backupText,
+            onValueChange = {},
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 4,
+            maxLines = 8,
+            readOnly = true,
+            label = { Text("Boundary backup JSON") }
+        )
+        OutlinedTextField(
+            value = restoreText,
+            onValueChange = { restoreText = it },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+            label = { Text("Paste backup to restore") }
+        )
+        Button(
+            onClick = {
+                viewModel.restorePreferenceBackup(restoreText)
+                restoreText = ""
+            },
+            enabled = restoreText.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Restore boundary backup")
+        }
         SectionTitle("About ContentLens")
         InfoCard("Informational ratings", "ContentLens ratings are informational and based on content reports, not official certification.")
         InfoCard("Search data source", "Movie and TV search metadata and images are provided by TMDB when a local TMDB read access token is configured.")
@@ -1446,10 +1617,10 @@ private fun TitleDetailCard(titleLens: TitleLens, state: AppUiState, viewModel: 
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text("ContentLens: ${titleLens.summary.rating.label}") })
-                AssistChip(onClick = {}, label = { Text(titleLens.fit.label) })
+                BoundaryBadge(titleLens.boundary)
             }
+            Text(titleLens.boundary.explanation, color = boundaryColor(titleLens.boundary.status), fontWeight = FontWeight.SemiBold)
             Text(titleLens.title.summary, color = Color(0xFF334155))
-            if (titleLens.fit == FitLabel.Caution) Text("Caution for this profile.", color = Color(0xFFA16207), fontWeight = FontWeight.SemiBold)
             SectionTitle("Top content warnings")
             if (titleLens.summary.topWarnings.isEmpty()) EmptyState("Insufficient data", "No content warnings are available for this title yet.") else FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 titleLens.summary.topWarnings.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
@@ -1650,6 +1821,75 @@ private fun SeverityColor(severity: Severity): Color = when (severity) {
     Severity.Moderate -> Color(0xFFA16207)
     Severity.Strong -> Color(0xFFB45309)
     Severity.GraphicHeavy -> Color(0xFFBE123C)
+}
+
+private fun boundaryCategories(): List<ContentCategory> = listOf(
+    ContentCategory.Nudity,
+    ContentCategory.SexualContent,
+    ContentCategory.GraphicViolence,
+    ContentCategory.Gore,
+    ContentCategory.DrugUse,
+    ContentCategory.AlcoholUse,
+    ContentCategory.Smoking,
+    ContentCategory.Profanity,
+    ContentCategory.ReligiousThemes,
+    ContentCategory.Horror,
+    ContentCategory.JumpScares,
+    ContentCategory.Suicide,
+    ContentCategory.SelfHarm,
+    ContentCategory.DomesticAbuse,
+    ContentCategory.SexualAssault,
+    ContentCategory.ChildHarm,
+    ContentCategory.AnimalHarm,
+    ContentCategory.DisturbingMedicalImagery,
+    ContentCategory.FlashingLights,
+    ContentCategory.LoudSuddenSounds
+)
+
+private fun boundarySensitivityLevels(): List<Sensitivity> = listOf(
+    Sensitivity.Allow,
+    Sensitivity.WarnMe,
+    Sensitivity.AvoidWhenPossible,
+    Sensitivity.NeverShow,
+    Sensitivity.UnknownRequiresApproval
+)
+
+private fun Sensitivity.toBoundaryLevel(): Sensitivity = when (this) {
+    Sensitivity.DontCare -> Sensitivity.Allow
+    Sensitivity.MildConcern -> Sensitivity.WarnMe
+    Sensitivity.AvoidModeratePlus -> Sensitivity.AvoidWhenPossible
+    Sensitivity.AvoidStrongPlus,
+    Sensitivity.AvoidAny -> Sensitivity.NeverShow
+    else -> this
+}
+
+private fun preferencesBackupJson(state: AppUiState): String {
+    val profiles = JSONArray()
+    state.profiles.forEach { profile ->
+        val boundaries = JSONArray()
+        state.allSensitivities
+            .filter { it.profileId == profile.id }
+            .sortedBy { it.category.label }
+            .forEach {
+                boundaries.put(
+                    JSONObject()
+                        .put("category", it.category.name)
+                        .put("sensitivity", it.sensitivity.toBoundaryLevel().name)
+                )
+            }
+        profiles.put(
+            JSONObject()
+                .put("id", profile.id)
+                .put("name", profile.name)
+                .put("description", profile.description)
+                .put("boundaries", boundaries)
+        )
+    }
+    return JSONObject()
+        .put("version", 1)
+        .put("app", "ContentLens")
+        .put("profiles", profiles)
+        .toString(2)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

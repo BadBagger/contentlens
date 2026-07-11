@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.14-visual-browse`
+- Latest published release: `v0.3.15-content-boundaries`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing. Home hydrates preset safety summaries through one backend featured feed and keeps a local on-device featured-feed cache for later launches.
 - Storage: local Room database plus DataStore settings
 - Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
@@ -144,6 +144,10 @@ Implemented MVP:
 - `v0.3.14-visual-browse`: expands the visual browsing experience with larger poster-led search and local cards, skeleton search loading states, provider-logo rows, cast image carousels, similar-title poster shelves, reusable age/match/warning/genre badges, graceful artwork fallbacks, and theme-aware surfaces for dark mode.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.14-visual-browse`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.14-visual-browse.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.15-content-boundaries`: adds detailed personal content boundaries with five boundary levels, multi-profile shared-viewing selection using the strictest selected rule, search/detail compatibility explanations, filtered-title reveal controls, editable boundary controls, local preference backup/restore JSON, and engine tests for unknown-data approval, strictest multi-profile rules, and category aliases.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.15-content-boundaries`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.15-content-boundaries.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

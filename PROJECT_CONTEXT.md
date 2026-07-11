@@ -5,8 +5,8 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.2.6-launch-crash-fix`
-- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 support is in progress as the first external content-safety source.
+- Latest published release: `v0.3.0-safety-proxy`
+- Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
 
@@ -25,6 +25,7 @@ Implemented MVP:
 - Local watchlist
 - Data/privacy and about settings copy
 - Optional DoesTheDogDie community warning source for searched TMDB titles when a local API key is configured
+- Optional ContentLens proxy API for provider-backed content safety without exposing provider keys in the APK
 
 ## Future Needs
 
@@ -32,6 +33,7 @@ Implemented MVP:
 - Real report sync backend
 - Moderation queue and trust signals
 - DoesTheDogDie commercial/tier review before any public/commercial distribution that relies on provider data
+- Deploy `backend/contentlens-api` and configure `contentLensApiBaseUrl` in public Android builds before expecting normal users to receive live provider warnings
 - Editable profile sensitivity UI
 - Timestamp-level entries
 - DevHub registry onboarding if ContentLens should appear in the Smithware store app
@@ -82,6 +84,10 @@ Implemented MVP:
 - `v0.2.6-launch-crash-fix`: fixes a launch crash on upgraded installs by aligning the `remote_content_reports` Room entity schema with the v1-to-v2 migration table, including the `remoteKey` index and SQL defaults for local report source/status.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.6-launch-crash-fix`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.6-launch-crash-fix.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.0-safety-proxy`: adds `backend/contentlens-api`, a Node 20 Smithware proxy for provider-backed content safety that hides DoesTheDogDie keys from Android clients, caches normalized reports, rate-limits requests, and exposes `/v1/safety/tmdb/{movie|tv}/{tmdbId}`. Android can now call the proxy via `contentLensApiBaseUrl`, with direct DoesTheDogDie access retained only for local private builds.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.0-safety-proxy`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.0-safety-proxy.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

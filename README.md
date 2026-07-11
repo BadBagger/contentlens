@@ -33,7 +33,22 @@ Without this configuration, the app builds and shows a Search not configured sta
 
 ## Content Safety Source Configuration
 
-ContentLens can use DoesTheDogDie API v3 community content warnings as an external safety source. Add the key locally before building an APK that should show provider-backed warnings:
+ContentLens can use a Smithware-owned proxy API for provider-backed content safety data. Production/public builds should use the proxy so provider keys are never embedded in an APK:
+
+```properties
+contentLensApiBaseUrl=https://YOUR_CONTENTLENS_API_HOST
+```
+
+The backend lives in `backend/contentlens-api` and expects the DoesTheDogDie provider key as a server-side environment variable:
+
+```powershell
+cd backend/contentlens-api
+$env:DOES_THE_DOG_DIE_API_KEY='YOUR_KEY'
+npm test
+npm start
+```
+
+For local-only Android testing, ContentLens can still call DoesTheDogDie API v3 directly. Add the key locally before building a private APK:
 
 ```properties
 doesTheDogDieApiKey=YOUR_DOES_THE_DOG_DIE_API_KEY
@@ -41,4 +56,4 @@ doesTheDogDieApiKey=YOUR_DOES_THE_DOG_DIE_API_KEY
 
 The key can be stored in ignored `local.properties` or provided as the `DOES_THE_DOG_DIE_API_KEY` environment variable. Do not commit API tokens.
 
-Without this configuration, title details show a DoesTheDogDie not configured state and continue to use local reports plus TMDB certification metadata.
+Without proxy or direct-provider configuration, title details show a content safety source not configured state and continue to use local reports plus TMDB certification metadata.

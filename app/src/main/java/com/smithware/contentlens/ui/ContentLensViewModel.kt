@@ -14,9 +14,10 @@ import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.ProfileSensitivityEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.SettingsStore
-import com.smithware.contentlens.data.safety.DoesTheDogDieClient
+import com.smithware.contentlens.data.safety.ConfiguredContentSafetySource
 import com.smithware.contentlens.data.safety.DoesTheDogDieError
 import com.smithware.contentlens.data.safety.ExternalSafetyState
+import com.smithware.contentlens.data.safety.ProxySafetyError
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.data.WatchlistItemEntity
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
@@ -111,7 +112,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val ratingEngine = LocalRatingEngine()
     private val fitEngine = LocalPersonalFitEngine()
     private val tmdbClient = TmdbClient()
-    private val safetySource = DoesTheDogDieClient()
+    private val safetySource = ConfiguredContentSafetySource()
 
     private val selectedTitleId = MutableStateFlow<String?>(null)
     private val selectedProfileId = MutableStateFlow<String?>(null)
@@ -513,6 +514,13 @@ private fun Throwable.toExternalSafetyState(): ExternalSafetyState = when (this)
     is DoesTheDogDieError.Offline -> ExternalSafetyState.Error("ContentLens could not reach DoesTheDogDie.")
     is DoesTheDogDieError.Parsing -> ExternalSafetyState.Error("DoesTheDogDie returned data this build could not read.")
     is DoesTheDogDieError.Server -> ExternalSafetyState.Error("DoesTheDogDie returned HTTP $statusCode.")
+    is ProxySafetyError.MissingBaseUrl -> ExternalSafetyState.NotConfigured
+    is ProxySafetyError.NoMatch -> ExternalSafetyState.NoMatch
+    is ProxySafetyError.ProviderNotConfigured -> ExternalSafetyState.Error("ContentLens API is missing provider configuration.")
+    is ProxySafetyError.RateLimited -> ExternalSafetyState.Error("ContentLens API rate limit was reached. Try again later.")
+    is ProxySafetyError.Offline -> ExternalSafetyState.Error("ContentLens API could not be reached.")
+    is ProxySafetyError.Parsing -> ExternalSafetyState.Error("ContentLens API returned data this build could not read.")
+    is ProxySafetyError.Server -> ExternalSafetyState.Error("ContentLens API returned HTTP $statusCode.")
     else -> ExternalSafetyState.Error(message ?: "Content safety data could not be loaded.")
 }
 

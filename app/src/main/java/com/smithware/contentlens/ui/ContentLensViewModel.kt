@@ -20,6 +20,7 @@ import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbClient
 import com.smithware.contentlens.data.tmdb.TmdbImageConfiguration
 import com.smithware.contentlens.data.tmdb.TmdbSearchError
+import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
 import com.smithware.contentlens.domain.LensRating
@@ -57,7 +58,8 @@ data class AppUiState(
     val reports: List<ContentReportEntity> = emptyList(),
     val settings: AppSettings = AppSettings(),
     val query: String = "",
-    val remoteSearch: RemoteSearchUiState = RemoteSearchUiState.Initial
+    val remoteSearch: RemoteSearchUiState = RemoteSearchUiState.Initial,
+    val remoteDetail: RemoteDetailUiState = RemoteDetailUiState.None
 )
 
 sealed class RemoteSearchUiState {
@@ -81,6 +83,16 @@ sealed class RemoteSearchUiState {
     data class ServerError(val query: String, val message: String) : RemoteSearchUiState()
 }
 
+sealed class RemoteDetailUiState {
+    data object None : RemoteDetailUiState()
+    data class Loading(val result: NormalizedMediaResult) : RemoteDetailUiState()
+    data class Loaded(
+        val details: TmdbTitleDetails,
+        val imageUrlBuilder: ImageUrlBuilder
+    ) : RemoteDetailUiState()
+    data class Error(val result: NormalizedMediaResult, val message: String) : RemoteDetailUiState()
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class ContentLensViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = ContentLensDatabase.get(application).dao()
@@ -94,7 +106,9 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val selectedProfileId = MutableStateFlow<String?>(null)
     private val query = MutableStateFlow("")
     private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
+    private val remoteDetail = MutableStateFlow<RemoteDetailUiState>(RemoteDetailUiState.None)
     private var remoteSearchJob: Job? = null
+    private var remoteDetailJob: Job? = null
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
@@ -119,10 +133,14 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     remoteSearch = searchState
                 )
             }
+            val appStoredState = combine(storedState, remoteDetail) { stored, detail ->
+                AppStoredState(stored, detail)
+            }
             val controls = combine(selectedTitleId, selectedProfileId, query) { titleId, profileId, search ->
                 ControlState(titleId, profileId, search)
             }
-            combine(storedState, controls) { stored, control ->
+            combine(appStoredState, controls) { storedWithDetail, control ->
+                val stored = storedWithDetail.stored
                 val activeProfileId = control.selectedProfileId ?: stored.settings.defaultProfileId ?: stored.profiles.firstOrNull()?.id
                 BaseState(
                     titles = stored.titles,
@@ -130,10 +148,11 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     watchlist = stored.watchlist,
                     reports = stored.reports,
                     settings = stored.settings,
-                    selectedTitleId = control.selectedTitleId ?: stored.titles.firstOrNull()?.id,
+                    selectedTitleId = control.selectedTitleId,
                     activeProfileId = activeProfileId,
                     query = control.query,
-                    remoteSearch = stored.remoteSearch
+                    remoteSearch = stored.remoteSearch,
+                    remoteDetail = storedWithDetail.remoteDetail
                 )
             }.flatMapLatest { base ->
                 val titleId = base.selectedTitleId
@@ -160,7 +179,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         reports = base.reports,
                         settings = base.settings,
                         query = base.query,
-                        remoteSearch = base.remoteSearch
+                        remoteSearch = base.remoteSearch,
+                        remoteDetail = base.remoteDetail
                     )
                 }
             }.collect { _uiState.value = it }
@@ -169,6 +189,33 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     fun selectTitle(id: String) {
         selectedTitleId.value = id
+        remoteDetail.value = RemoteDetailUiState.None
+    }
+
+    fun selectRemoteResult(result: NormalizedMediaResult) {
+        selectedTitleId.value = null
+        remoteDetailJob?.cancel()
+        remoteDetailJob = viewModelScope.launch {
+            remoteDetail.value = RemoteDetailUiState.Loading(result)
+            try {
+                val (details, config) = tmdbClient.details(result)
+                remoteDetail.value = RemoteDetailUiState.Loaded(details, ImageUrlBuilder(config))
+            } catch (error: Throwable) {
+                remoteDetail.value = RemoteDetailUiState.Error(result, error.toSearchUiState(result.title).let {
+                    when (it) {
+                        is RemoteSearchUiState.ConfigurationError -> it.message
+                        is RemoteSearchUiState.ServerError -> it.message
+                        is RemoteSearchUiState.Offline -> "ContentLens could not reach TMDB."
+                        else -> "Title details could not be loaded."
+                    }
+                })
+            }
+        }
+    }
+
+    fun clearRemoteDetail() {
+        remoteDetailJob?.cancel()
+        remoteDetail.value = RemoteDetailUiState.None
     }
 
     fun selectProfile(id: String) {
@@ -295,7 +342,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val selectedTitleId: String?,
         val activeProfileId: String?,
         val query: String,
-        val remoteSearch: RemoteSearchUiState
+        val remoteSearch: RemoteSearchUiState,
+        val remoteDetail: RemoteDetailUiState
     )
 
     private data class StoredState(
@@ -305,6 +353,11 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val reports: List<ContentReportEntity>,
         val settings: AppSettings,
         val remoteSearch: RemoteSearchUiState
+    )
+
+    private data class AppStoredState(
+        val stored: StoredState,
+        val remoteDetail: RemoteDetailUiState
     )
 
     private data class StoredBase(

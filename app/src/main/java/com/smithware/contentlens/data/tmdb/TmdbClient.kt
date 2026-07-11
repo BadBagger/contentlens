@@ -56,6 +56,40 @@ class TmdbClient(
         }
     }
 
+    suspend fun details(result: NormalizedMediaResult): Pair<TmdbTitleDetails, TmdbImageConfiguration> = coroutineScope {
+        if (readAccessToken.isBlank() && apiKey.isBlank()) throw TmdbSearchError.MissingToken()
+        val details = async {
+            when (result.mediaType) {
+                RemoteMediaType.Movie -> movieDetails(result.tmdbId)
+                RemoteMediaType.Tv -> tvDetails(result.tmdbId)
+            }
+        }
+        val config = async { configuration() }
+        details.await() to config.await()
+    }
+
+    private suspend fun movieDetails(tmdbId: Int): TmdbTitleDetails = withContext(Dispatchers.IO) {
+        try {
+            TmdbNormalizer.parseMovieDetails(
+                get("/movie/$tmdbId?append_to_response=credits,similar,watch/providers,release_dates&language=en-US")
+            )
+        } catch (error: JSONException) {
+            SafeLog.warn(TAG, "TMDB movie details parse failed: ${error.message}")
+            throw TmdbSearchError.Parsing(error)
+        }
+    }
+
+    private suspend fun tvDetails(tmdbId: Int): TmdbTitleDetails = withContext(Dispatchers.IO) {
+        try {
+            TmdbNormalizer.parseTvDetails(
+                get("/tv/$tmdbId?append_to_response=credits,similar,watch/providers,content_ratings&language=en-US")
+            )
+        } catch (error: JSONException) {
+            SafeLog.warn(TAG, "TMDB TV details parse failed: ${error.message}")
+            throw TmdbSearchError.Parsing(error)
+        }
+    }
+
     private fun merge(movie: TmdbSearchPage, tv: TmdbSearchPage): TmdbSearchPage {
         val mergedResults = (movie.results + tv.results)
             .distinctBy { it.mediaType to it.tmdbId }

@@ -1,6 +1,7 @@
 package com.smithware.contentlens.data.tmdb
 
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 
 object TmdbNormalizer {
@@ -83,9 +84,55 @@ object TmdbNormalizer {
             logoSizes = images.optStringList("logo_sizes")
         )
     }
+
+    fun parseMovieDetails(body: String): TmdbTitleDetails {
+        val root = JSONObject(body)
+        val base = normalizeMovie(root) ?: throw JSONException("Movie details missing title or id")
+        val releaseResults = root.optJSONObject("release_dates")
+            ?.optJSONArray("results")
+            ?.findCountry("US")
+            ?.optJSONArray("release_dates")
+        val certification = releaseResults?.firstCertification()
+        return TmdbTitleDetails(
+            result = base,
+            runtimeMinutes = root.optInt("runtime", 0).takeIf { it > 0 },
+            episodeRuntimeMinutes = null,
+            genres = root.optGenreNames(),
+            status = root.optNullableString("status"),
+            numberOfSeasons = null,
+            numberOfEpisodes = null,
+            certification = certification,
+            cast = root.optJSONObject("credits").optCast(),
+            similar = root.optJSONObject("similar").optResults(RemoteMediaType.Movie),
+            watchProviders = root.optJSONObject("watch/providers").optUsProviderNames()
+        )
+    }
+
+    fun parseTvDetails(body: String): TmdbTitleDetails {
+        val root = JSONObject(body)
+        val base = normalizeTv(root) ?: throw JSONException("TV details missing title or id")
+        val contentRatings = root.optJSONObject("content_ratings")
+            ?.optJSONArray("results")
+            ?.findCountry("US")
+            ?.optString("rating")
+            ?.ifBlank { null }
+        return TmdbTitleDetails(
+            result = base,
+            runtimeMinutes = null,
+            episodeRuntimeMinutes = root.optJSONArray("episode_run_time")?.optInt(0, 0)?.takeIf { it > 0 },
+            genres = root.optGenreNames(),
+            status = root.optNullableString("status"),
+            numberOfSeasons = root.optInt("number_of_seasons", 0).takeIf { it > 0 },
+            numberOfEpisodes = root.optInt("number_of_episodes", 0).takeIf { it > 0 },
+            certification = contentRatings,
+            cast = root.optJSONObject("credits").optCast(),
+            similar = root.optJSONObject("similar").optResults(RemoteMediaType.Tv),
+            watchProviders = root.optJSONObject("watch/providers").optUsProviderNames()
+        )
+    }
 }
 
-private fun JSONObject.optNullableString(name: String): String? =
+internal fun JSONObject.optNullableString(name: String): String? =
     if (isNull(name)) null else optString(name).ifBlank { null }
 
 private fun JSONObject.optIntList(name: String): List<Int> {
@@ -103,4 +150,77 @@ private fun JSONObject.optStringList(name: String): List<String> {
             if (value.isNotBlank()) add(value)
         }
     }
+}
+
+private fun JSONObject?.optCast(): List<TmdbCastMember> {
+    val array = this?.optJSONArray("cast") ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), 12)) {
+            val item = array.optJSONObject(index) ?: continue
+            val name = item.optString("name")
+            if (name.isBlank()) continue
+            add(
+                TmdbCastMember(
+                    id = item.optInt("id"),
+                    name = name,
+                    character = item.optString("character"),
+                    profilePath = item.optNullableString("profile_path")
+                )
+            )
+        }
+    }
+}
+
+private fun JSONObject?.optResults(mediaType: RemoteMediaType): List<NormalizedMediaResult> {
+    val array = this?.optJSONArray("results") ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), 10)) {
+            val item = array.optJSONObject(index) ?: continue
+            val normalized = when (mediaType) {
+                RemoteMediaType.Movie -> TmdbNormalizer.normalizeMovie(item)
+                RemoteMediaType.Tv -> TmdbNormalizer.normalizeTv(item)
+            }
+            if (normalized != null) add(normalized)
+        }
+    }
+}
+
+private fun JSONObject.optGenreNames(): List<String> {
+    val array = optJSONArray("genres") ?: return emptyList()
+    return buildList {
+        for (index in 0 until array.length()) {
+            val name = array.optJSONObject(index)?.optString("name").orEmpty()
+            if (name.isNotBlank()) add(name)
+        }
+    }
+}
+
+private fun JSONArray.findCountry(country: String): JSONObject? {
+    for (index in 0 until length()) {
+        val item = optJSONObject(index) ?: continue
+        if (item.optString("iso_3166_1").equals(country, ignoreCase = true)) return item
+    }
+    return null
+}
+
+private fun JSONArray.firstCertification(): String? {
+    for (index in 0 until length()) {
+        val certification = optJSONObject(index)?.optString("certification").orEmpty()
+        if (certification.isNotBlank()) return certification
+    }
+    return null
+}
+
+private fun JSONObject?.optUsProviderNames(): List<String> {
+    val us = this?.optJSONObject("results")?.optJSONObject("US") ?: return emptyList()
+    val arrays = listOf("flatrate", "free", "ads", "rent", "buy")
+    return arrays.flatMap { key ->
+        val array = us.optJSONArray(key) ?: return@flatMap emptyList()
+        buildList {
+            for (index in 0 until array.length()) {
+                val providerName = array.optJSONObject(index)?.optString("provider_name").orEmpty()
+                if (providerName.isNotBlank()) add(providerName)
+            }
+        }
+    }.distinct().take(8)
 }

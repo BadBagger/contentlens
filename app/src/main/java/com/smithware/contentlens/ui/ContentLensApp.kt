@@ -88,6 +88,8 @@ import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
+import com.smithware.contentlens.data.tmdb.TmdbCastMember
+import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
@@ -168,11 +170,6 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
             )
         }
         item {
-            state.selectedTitle?.let {
-                TitleDetailCard(it, state, viewModel)
-            } ?: EmptyState("No titles yet", "Demo titles will appear after local data is seeded.")
-        }
-        item {
             Button(onClick = onOpenSearch, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.Search, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
@@ -180,14 +177,29 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
             }
         }
         item {
-            SectionTitle("Recent demo titles")
-        }
-        items(state.titles.take(5), key = { it.id }) { title ->
-            TitleResultRow(
-                title = title,
-                selected = title.id == state.selectedTitleId,
-                onClick = { viewModel.selectTitle(title.id) }
+            SectionTitle("Start discovering")
+            InfoCard(
+                "Search movies and TV",
+                "Find real TMDB titles with posters, ratings, cast, provider availability, and ContentLens context."
             )
+        }
+        item {
+            SectionTitle("Local demo reports")
+            Text(
+                "These sample reports are available for content-breakdown testing until verified title data is expanded.",
+                color = Color(0xFF64748B),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        items(state.titles.take(3), key = { it.id }) { title ->
+            TitleResultRow(title = title, selected = title.id == state.selectedTitleId) {
+                viewModel.selectTitle(title.id)
+            }
+        }
+        if (state.selectedTitle != null) {
+            item {
+                TitleDetailCard(state.selectedTitle, state, viewModel)
+            }
         }
     }
 }
@@ -268,19 +280,30 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
             }
         }
         Spacer(Modifier.height(12.dp))
-        RemoteSearchContent(
-            state = state.remoteSearch,
-            onRetry = {
-                closeKeyboard()
-                viewModel.retrySearch()
-            },
-            onClear = {
-                closeKeyboard()
-                searchField = TextFieldValue("")
-                viewModel.updateQuery("")
-            },
-            onLoadMore = viewModel::loadMoreRemoteResults
-        )
+        when (val detail = state.remoteDetail) {
+            RemoteDetailUiState.None -> RemoteSearchContent(
+                state = state.remoteSearch,
+                onRetry = {
+                    closeKeyboard()
+                    viewModel.retrySearch()
+                },
+                onClear = {
+                    closeKeyboard()
+                    searchField = TextFieldValue("")
+                    viewModel.updateQuery("")
+                },
+                onLoadMore = viewModel::loadMoreRemoteResults,
+                onResultClick = {
+                    closeKeyboard()
+                    viewModel.selectRemoteResult(it)
+                }
+            )
+            is RemoteDetailUiState.Loading -> RemoteDetailLoading(detail.result, onBack = viewModel::clearRemoteDetail)
+            is RemoteDetailUiState.Loaded -> RemoteTitleDetail(detail.details, detail.imageUrlBuilder, onBack = viewModel::clearRemoteDetail)
+            is RemoteDetailUiState.Error -> RemoteDetailError(detail.result, detail.message, onBack = viewModel::clearRemoteDetail) {
+                viewModel.selectRemoteResult(detail.result)
+            }
+        }
     }
 }
 
@@ -289,7 +312,8 @@ private fun RemoteSearchContent(
     state: RemoteSearchUiState,
     onRetry: () -> Unit,
     onClear: () -> Unit,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    onResultClick: (NormalizedMediaResult) -> Unit
 ) {
     when (state) {
         RemoteSearchUiState.Initial -> EmptyState("Search movies and TV", "Type at least two characters to search TMDB for movies and shows.")
@@ -318,7 +342,7 @@ private fun RemoteSearchContent(
                 }
             }
             items(state.results, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
-                RemotePosterResultCard(result, state.imageUrlBuilder)
+                RemotePosterResultCard(result, state.imageUrlBuilder, onClick = { onResultClick(result) })
             }
             if (state.hasMore) {
                 item {
@@ -340,8 +364,12 @@ private fun RemoteSearchContent(
 }
 
 @Composable
-private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilder: ImageUrlBuilder) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilder: ImageUrlBuilder, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(8.dp)
+    ) {
         Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top) {
             PosterArtwork(
                 url = imageUrlBuilder.poster(result.posterPath),
@@ -376,6 +404,168 @@ private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilde
                     AssistChip(onClick = {}, label = { Text("Compatibility pending") })
                     AssistChip(onClick = {}, label = { Text("Match: title search") })
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteDetailLoading(result: NormalizedMediaResult, onBack: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = onBack) { Text("Back to results") }
+        LoadingState("Loading ${result.title}", "Fetching ratings, cast, providers, and similar titles.")
+    }
+}
+
+@Composable
+private fun RemoteDetailError(result: NormalizedMediaResult, message: String, onBack: () -> Unit, onRetry: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = onBack) { Text("Back to results") }
+        RetryState("Could not load ${result.title}", message, onRetry)
+    }
+}
+
+@Composable
+private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageUrlBuilder, onBack: () -> Unit) {
+    val result = details.result
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        item {
+            OutlinedButton(onClick = onBack) { Text("Back to results") }
+        }
+        item {
+            RemoteDetailHero(details, imageUrlBuilder)
+        }
+        item {
+            SectionTitle("Rating details")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = {}, label = { Text(result.mediaType.label) })
+                AssistChip(onClick = {}, label = { Text(details.certification?.let { "Rated $it" } ?: "Certification unknown") })
+                AssistChip(onClick = {}, label = { Text("TMDB ${String.format("%.1f", result.voteAverage)}") })
+                AssistChip(onClick = {}, label = { Text("${result.voteCount} votes") })
+            }
+        }
+        if (details.genres.isNotEmpty()) {
+            item {
+                SectionTitle("Genres")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.genres.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                }
+            }
+        }
+        item {
+            SectionTitle("Overview")
+            Text(result.overview.ifBlank { "No overview is available yet." }, color = Color(0xFF334155))
+        }
+        item {
+            SectionTitle("ContentLens compatibility")
+            InfoCard(
+                "Detailed warnings pending",
+                "TMDB provides metadata and certification. ContentLens report-level safety data for this exact title has not been verified yet."
+            )
+        }
+        if (details.watchProviders.isNotEmpty()) {
+            item {
+                SectionTitle("Available in your region")
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.watchProviders.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                }
+                Text(
+                    "Availability is reported by TMDB for the US region and may not reflect your personal account.",
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+        if (details.cast.isNotEmpty()) {
+            item {
+                SectionTitle("Cast")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.cast.take(8).forEach { CastRow(it, imageUrlBuilder) }
+                }
+            }
+        }
+        if (details.similar.isNotEmpty()) {
+            item {
+                SectionTitle("Similar titles")
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    details.similar.take(4).forEach { similar ->
+                        RemotePosterResultCard(similar, imageUrlBuilder, onClick = {})
+                    }
+                }
+            }
+        }
+        item {
+            InfoCard("Source", "Metadata, ratings, providers, cast, and images are provided by TMDB.")
+        }
+    }
+}
+
+@Composable
+private fun RemoteDetailHero(details: TmdbTitleDetails, imageUrlBuilder: ImageUrlBuilder) {
+    val result = details.result
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Column {
+            val backdropUrl = imageUrlBuilder.backdrop(result.backdropPath)
+            if (backdropUrl != null) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(backdropUrl)
+                        .crossfade(true)
+                        .diskCacheKey(backdropUrl)
+                        .memoryCacheKey(backdropUrl)
+                        .build(),
+                    contentDescription = "Backdrop for ${result.title}",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                )
+            }
+            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+                PosterArtwork(
+                    url = imageUrlBuilder.poster(result.posterPath),
+                    contentDescription = "Poster for ${result.title}",
+                    modifier = Modifier.width(104.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(result.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        listOfNotNull(
+                            result.releaseYear?.toString(),
+                            result.mediaType.label,
+                            details.runtimeMinutes?.let { "${it} min" } ?: details.episodeRuntimeMinutes?.let { "${it} min episodes" },
+                            details.status
+                        ).joinToString(" • "),
+                        color = Color(0xFF64748B)
+                    )
+                    if (details.numberOfSeasons != null || details.numberOfEpisodes != null) {
+                        Text(
+                            listOfNotNull(
+                                details.numberOfSeasons?.let { "$it seasons" },
+                                details.numberOfEpisodes?.let { "$it episodes" }
+                            ).joinToString(" • "),
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CastRow(cast: TmdbCastMember, imageUrlBuilder: ImageUrlBuilder) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        PosterArtwork(
+            url = imageUrlBuilder.profile(cast.profilePath),
+            contentDescription = "Photo of ${cast.name}",
+            modifier = Modifier.width(46.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(cast.name, fontWeight = FontWeight.SemiBold)
+            if (cast.character.isNotBlank()) {
+                Text(cast.character, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
             }
         }
     }

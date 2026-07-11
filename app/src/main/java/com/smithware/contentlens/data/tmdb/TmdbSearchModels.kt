@@ -32,6 +32,27 @@ data class TmdbSearchPage(
     val hasMore: Boolean get() = page < totalPages
 }
 
+data class TmdbTitleDetails(
+    val result: NormalizedMediaResult,
+    val runtimeMinutes: Int?,
+    val episodeRuntimeMinutes: Int?,
+    val genres: List<String>,
+    val status: String?,
+    val numberOfSeasons: Int?,
+    val numberOfEpisodes: Int?,
+    val certification: String?,
+    val cast: List<TmdbCastMember>,
+    val similar: List<NormalizedMediaResult>,
+    val watchProviders: List<String>
+)
+
+data class TmdbCastMember(
+    val id: Int,
+    val name: String,
+    val character: String,
+    val profilePath: String?
+)
+
 data class TmdbImageConfiguration(
     val secureBaseUrl: String = "https://image.tmdb.org/t/p/",
     val posterSizes: List<String> = listOf("w342", "w500", "original"),

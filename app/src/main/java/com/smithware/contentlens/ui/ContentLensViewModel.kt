@@ -509,7 +509,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private fun loadDiscoveryPresets() {
         viewModelScope.launch {
             defaultDiscoveryPresets().forEach { preset ->
-                try {
+                launch {
+                    try {
                     val loaded = preset.seeds.map { seed ->
                         async { tmdbClient.details(seed.mediaType, seed.tmdbId) }
                     }.map { it.await() }
@@ -535,9 +536,10 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                             it
                         }
                     }
-                } catch (error: Throwable) {
-                    discoverySections.value = discoverySections.value.map {
-                        if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
+                    } catch (error: Throwable) {
+                        discoverySections.value = discoverySections.value.map {
+                            if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
+                        }
                     }
                 }
             }
@@ -668,13 +670,46 @@ private fun defaultDiscoverySections(): List<DiscoverySectionState> {
 private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
     DiscoveryPreset(
         key = "little-kids",
-        title = "Best for kids under 3",
+        title = "Young children",
         subtitle = "Gentle preschool and toddler-friendly starting points.",
         seeds = listOf(
             DiscoverySeed(RemoteMediaType.Tv, 82728),
             DiscoverySeed(RemoteMediaType.Tv, 40050),
             DiscoverySeed(RemoteMediaType.Tv, 69926),
             DiscoverySeed(RemoteMediaType.Tv, 2005)
+        )
+    ),
+    DiscoveryPreset(
+        key = "preschool-favorites",
+        title = "Preschool favorites",
+        subtitle = "Bright, familiar shows for early learners.",
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Tv, 502),
+            DiscoverySeed(RemoteMediaType.Tv, 656),
+            DiscoverySeed(RemoteMediaType.Tv, 37472),
+            DiscoverySeed(RemoteMediaType.Tv, 93548)
+        )
+    ),
+    DiscoveryPreset(
+        key = "early-elementary",
+        title = "Early elementary",
+        subtitle = "Friendly adventures for growing attention spans.",
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Tv, 35094),
+            DiscoverySeed(RemoteMediaType.Tv, 7248),
+            DiscoverySeed(RemoteMediaType.Movie, 227973),
+            DiscoverySeed(RemoteMediaType.Tv, 3902)
+        )
+    ),
+    DiscoveryPreset(
+        key = "older-kids",
+        title = "Older kids",
+        subtitle = "Bigger stories to review for intensity and scares.",
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Movie, 10191),
+            DiscoverySeed(RemoteMediaType.Tv, 82456),
+            DiscoverySeed(RemoteMediaType.Tv, 246),
+            DiscoverySeed(RemoteMediaType.Movie, 501929)
         )
     ),
     DiscoveryPreset(
@@ -723,13 +758,13 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
     ),
     DiscoveryPreset(
         key = "teen-adventure",
-        title = "Teen adventure",
+        title = "Tweens and teens",
         subtitle = "Higher-energy titles worth checking against profile limits.",
         seeds = listOf(
             DiscoverySeed(RemoteMediaType.Movie, 671),
-            DiscoverySeed(RemoteMediaType.Movie, 557),
+            DiscoverySeed(RemoteMediaType.Movie, 411),
             DiscoverySeed(RemoteMediaType.Tv, 103540),
-            DiscoverySeed(RemoteMediaType.Tv, 246)
+            DiscoverySeed(RemoteMediaType.Tv, 40075)
         )
     )
 )

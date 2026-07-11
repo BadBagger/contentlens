@@ -68,4 +68,4 @@ Cold provider-backed safety lookups can take several seconds. The Android proxy 
 
 Search results prefetch lightweight safety summaries for the first visible cards. TMDB title/poster results still render first; safety chips update in place as provider data returns.
 
-Home discovery shelves use exact curated TMDB IDs for common viewing needs and load rating summaries before each shelf appears. The same session cache is reused by Home, Search, and Title Details.
+Home discovery shelves use exact curated TMDB IDs for common viewing needs and age bands, then load rating summaries before each shelf appears. The same session cache is reused by Home, Search, and Title Details.

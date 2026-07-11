@@ -53,8 +53,8 @@ android {
         applicationId = "com.smithware.contentlens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.3.0-safety-proxy"
+        versionCode = 13
+        versionName = "0.3.1-live-safety-proxy"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", tmdbReadAccessToken.asBuildConfigString())

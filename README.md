@@ -39,6 +39,12 @@ ContentLens can use a Smithware-owned proxy API for provider-backed content safe
 contentLensApiBaseUrl=https://YOUR_CONTENTLENS_API_HOST
 ```
 
+Current deployed proxy:
+
+```properties
+contentLensApiBaseUrl=https://contentlens-api.sassyboii69.chatgpt.site
+```
+
 The backend lives in `backend/contentlens-api` and expects the DoesTheDogDie provider key as a server-side environment variable:
 
 ```powershell

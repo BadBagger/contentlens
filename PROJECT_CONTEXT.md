@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.0-safety-proxy`
+- Latest published release: `v0.3.1-live-safety-proxy`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
@@ -88,6 +88,10 @@ Implemented MVP:
 - `v0.3.0-safety-proxy`: adds `backend/contentlens-api`, a Node 20 Smithware proxy for provider-backed content safety that hides DoesTheDogDie keys from Android clients, caches normalized reports, rate-limits requests, and exposes `/v1/safety/tmdb/{movie|tv}/{tmdbId}`. Android can now call the proxy via `contentLensApiBaseUrl`, with direct DoesTheDogDie access retained only for local private builds.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.0-safety-proxy`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.0-safety-proxy.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.1-live-safety-proxy`: deploys the ContentLens API to `https://contentlens-api.sassyboii69.chatgpt.site`, stores the DoesTheDogDie key server-side as a Sites secret, makes the API publicly reachable for Android clients, and builds the Android release with `contentLensApiBaseUrl` pointed at the live proxy.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.1-live-safety-proxy`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.1-live-safety-proxy.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.2.1-clickable-details-home`
+- Latest published release: `v0.2.2-rating-report`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
@@ -60,6 +60,10 @@ Implemented MVP:
 - `v0.2.1-clickable-details-home`: makes TMDB search poster cards tappable, adds remote title details with backdrop, poster, certification/rating, vote score, runtime/episode runtime, TV season counts, genres, overview, cast, providers, similar titles, and source attribution, and cleans Home so it no longer auto-opens the seeded `After the Rainfall` local report.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.1-clickable-details-home`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.1-clickable-details-home.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.2.2-rating-report`: replaces the vague `Detailed warnings pending` block with a clearer Rating report showing official certification, preliminary ContentLens rating, confidence/source, unknown-data warning, category report status chips, and source explanation. Certification-to-ContentLens mapping is now in the domain layer with unit coverage.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.2-rating-report`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.2-rating-report.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

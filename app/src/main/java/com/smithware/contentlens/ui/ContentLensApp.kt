@@ -93,7 +93,9 @@ import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
+import com.smithware.contentlens.domain.LensRating
 import com.smithware.contentlens.domain.Severity
+import com.smithware.contentlens.domain.certificationToLensRating
 
 private enum class Screen(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Outlined.Home),
@@ -457,11 +459,7 @@ private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageU
             Text(result.overview.ifBlank { "No overview is available yet." }, color = Color(0xFF334155))
         }
         item {
-            SectionTitle("ContentLens compatibility")
-            InfoCard(
-                "Detailed warnings pending",
-                "TMDB provides metadata and certification. ContentLens report-level safety data for this exact title has not been verified yet."
-            )
+            RemoteRatingReport(details)
         }
         if (details.watchProviders.isNotEmpty()) {
             item {
@@ -498,6 +496,58 @@ private fun RemoteTitleDetail(details: TmdbTitleDetails, imageUrlBuilder: ImageU
         item {
             InfoCard("Source", "Metadata, ratings, providers, cast, and images are provided by TMDB.")
         }
+    }
+}
+
+@Composable
+private fun RemoteRatingReport(details: TmdbTitleDetails) {
+    val certification = details.certification
+    val preliminary = certificationToLensRating(certification)
+    SectionTitle("Rating report")
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = {}, label = { Text("Official: ${certification ?: "Unknown"}") })
+                AssistChip(onClick = {}, label = { Text("ContentLens: ${preliminary.label}") })
+                AssistChip(onClick = {}, label = { Text(if (certification == null) "Confidence: low" else "Confidence: certification only") })
+            }
+            Text(
+                ratingExplanation(certification, preliminary),
+                color = Color(0xFF334155),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                "Detailed category warnings are not verified yet for this title. Unknown content is not treated as safe.",
+                color = Color(0xFFB45309),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            SectionTitle("Category report status")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "Language unknown",
+                    "Violence unknown",
+                    "Sexual content unknown",
+                    "Nudity unknown",
+                    "Drugs unknown",
+                    "Self-harm unknown"
+                ).forEach { label ->
+                    AssistChip(onClick = {}, label = { Text(label) })
+                }
+            }
+            InfoCard(
+                "Source",
+                "TMDB provides metadata and official certification when available. ContentLens category-level reports still need verified local or community data for this exact title."
+            )
+        }
+    }
+}
+
+private fun ratingExplanation(certification: String?, rating: LensRating): String {
+    return if (certification.isNullOrBlank()) {
+        "No official US certification was found from TMDB. ContentLens needs a verified content report before recommending this title for sensitive profiles."
+    } else {
+        "Preliminary ContentLens rating is based on the official certification \"$certification\". This is not a verified category report, so profile safety decisions should treat detailed content as unknown."
     }
 }
 

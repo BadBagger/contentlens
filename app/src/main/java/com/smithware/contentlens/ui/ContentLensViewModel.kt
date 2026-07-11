@@ -42,7 +42,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
@@ -79,7 +78,7 @@ data class DiscoverySectionState(
     val subtitle: String,
     val results: List<NormalizedMediaResult> = emptyList(),
     val imageUrlBuilder: ImageUrlBuilder? = null,
-    val loading: Boolean = true,
+    val loading: Boolean = false,
     val error: String? = null
 )
 
@@ -92,7 +91,32 @@ private data class DiscoveryPreset(
 
 private data class DiscoverySeed(
     val mediaType: RemoteMediaType,
-    val tmdbId: Int
+    val tmdbId: Int,
+    val title: String,
+    val posterPath: String?,
+    val backdropPath: String?,
+    val releaseDate: String?,
+    val voteAverage: Double,
+    val voteCount: Int,
+    val originalLanguage: String = "en"
+)
+
+private fun DiscoverySeed.toResult(): NormalizedMediaResult = NormalizedMediaResult(
+    tmdbId = tmdbId,
+    mediaType = mediaType,
+    title = title,
+    originalTitle = title,
+    overview = "",
+    posterPath = posterPath,
+    backdropPath = backdropPath,
+    releaseDate = releaseDate,
+    releaseYear = releaseDate?.take(4)?.toIntOrNull(),
+    genreIds = emptyList(),
+    popularity = 0.0,
+    voteAverage = voteAverage,
+    voteCount = voteCount,
+    adult = false,
+    originalLanguage = originalLanguage
 )
 
 sealed class RemoteSearchUiState {
@@ -510,35 +534,16 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             defaultDiscoveryPresets().forEach { preset ->
                 launch {
-                    try {
-                    val loaded = preset.seeds.map { seed ->
-                        async { tmdbClient.details(seed.mediaType, seed.tmdbId) }
-                    }.map { it.await() }
-                    val config = loaded.firstOrNull()?.second ?: tmdbClient.configuration()
-                    val details = loaded.map { it.first }
-                    val results = details.map { it.result }
-                    val safetyStates = details.map { detail ->
-                        async {
+                    val results = preset.seeds.map { it.toResult() }
+                    results.forEach { result ->
+                        launch {
                             val state = try {
-                                val report = safetySource.reportFor(detail)
+                                val report = safetySource.reportFor(result.toLightweightDetails())
                                 if (report == null) ExternalSafetyState.NoMatch else ExternalSafetyState.Loaded(report)
                             } catch (error: Throwable) {
                                 error.toExternalSafetyState()
                             }
-                            detail.remoteKey() to state
-                        }
-                    }.map { it.await() }.toMap()
-                    remoteSafety.value = remoteSafety.value + safetyStates
-                    discoverySections.value = discoverySections.value.map {
-                        if (it.key == preset.key) {
-                            it.copy(results = results, imageUrlBuilder = ImageUrlBuilder(config), loading = false, error = null)
-                        } else {
-                            it
-                        }
-                    }
-                    } catch (error: Throwable) {
-                        discoverySections.value = discoverySections.value.map {
-                            if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
+                            remoteSafety.value = remoteSafety.value + (remoteMediaKey(result.tmdbId, result.mediaType) to state)
                         }
                     }
                 }
@@ -663,7 +668,14 @@ private fun NormalizedMediaResult.toLightweightDetails(): TmdbTitleDetails = Tmd
 
 private fun defaultDiscoverySections(): List<DiscoverySectionState> {
     return defaultDiscoveryPresets().map {
-        DiscoverySectionState(key = it.key, title = it.title, subtitle = it.subtitle)
+        DiscoverySectionState(
+            key = it.key,
+            title = it.title,
+            subtitle = it.subtitle,
+            results = it.seeds.map { seed -> seed.toResult() },
+            imageUrlBuilder = ImageUrlBuilder(),
+            loading = false
+        )
     }
 }
 
@@ -673,10 +685,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Young children",
         subtitle = "Gentle preschool and toddler-friendly starting points.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Tv, 82728),
-            DiscoverySeed(RemoteMediaType.Tv, 40050),
-            DiscoverySeed(RemoteMediaType.Tv, 69926),
-            DiscoverySeed(RemoteMediaType.Tv, 2005)
+            tv(82728, "Bluey", "/b9mY0X5T20ZM073hoa5n0dgmbfN.jpg", "/g88VMPtog8sl8riaIRtz4U80dMK.jpg", "2018-10-01", 8.6, 711),
+            tv(40050, "Daniel Tiger's Neighborhood", "/pUbHrEFTWegyhIxFmtpOpAQsbfT.jpg", "/yAIpWHcLmS1O2aCrx4oBhXtwoHt.jpg", "2012-09-03", 7.1, 33),
+            tv(69926, "Puffin Rock", "/8ZYTNkpubnG8epqlJLjaWbbO30R.jpg", "/9z945wZwFzJ0EbzY8vsk5ELCZeJ.jpg", "2015-01-12", 7.6, 11),
+            tv(2005, "The New Adventures of Winnie the Pooh", "/iJFbF43bN1HX5EZl4OFAVmJDl1u.jpg", "/pFRX1VUIm0j7a9VI1lQke9tOMZY.jpg", "1988-09-10", 7.7, 273)
         )
     ),
     DiscoveryPreset(
@@ -684,10 +696,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Preschool favorites",
         subtitle = "Bright, familiar shows for early learners.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Tv, 502),
-            DiscoverySeed(RemoteMediaType.Tv, 656),
-            DiscoverySeed(RemoteMediaType.Tv, 37472),
-            DiscoverySeed(RemoteMediaType.Tv, 93548)
+            tv(502, "Sesame Street", "/14k9BfZ2p4rQBMeJ5crKTfUZVwD.jpg", "/tNi2aJPdCKfielGYzIi3IKxStz9.jpg", "1969-11-10", 7.1, 286),
+            tv(656, "Curious George", "/1FsihcjjTrzkmD9i8hRPzE6GhZf.jpg", "/vn9iFlwSvl8B9YE1qayrKWMxoEV.jpg", "2006-09-04", 7.2, 135),
+            tv(37472, "Octonauts", "/iYUhUSKWKpSBahaWLUQIPckAy8p.jpg", "/lbdBBEnto6xPQ8oKHt5P9r3JCfH.jpg", "2010-10-05", 7.2, 57),
+            tv(93548, "Molly of Denali", "/8HdIoG6HHJJaf8M3SAVQrGgCvHp.jpg", "/pvyxHVkUoLoT97ildtGKH2BHSGm.jpg", "2019-07-15", 7.0, 1)
         )
     ),
     DiscoveryPreset(
@@ -695,10 +707,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Early elementary",
         subtitle = "Friendly adventures for growing attention spans.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Tv, 35094),
-            DiscoverySeed(RemoteMediaType.Tv, 7248),
-            DiscoverySeed(RemoteMediaType.Movie, 227973),
-            DiscoverySeed(RemoteMediaType.Tv, 3902)
+            tv(35094, "Wild Kratts", "/7Nn1AZb6LJv0WedeK7o4yU6Aioh.jpg", "/lQ1WqzCSyjH3Zhe11776cnP7ESO.jpg", "2011-01-03", 7.5, 64),
+            tv(7248, "The Magic School Bus", "/3A70wxUpplD4V3IcL8WmNFBgAbV.jpg", "/pWZjTb2ixwVEzvnsvv3KYz5pvIs.jpg", "1994-09-10", 7.7, 134),
+            movie(227973, "The Peanuts Movie", "/aiwdwnl7RFs1vcBanOKr13ye3wE.jpg", "/361quVX94drEaExOKScbZYsxijG.jpg", "2015-11-05", 7.0, 1811),
+            tv(3902, "Shaun the Sheep", "/z2gPfTQd3I0JLWOAEdKYMQRLoun.jpg", "/onwny8s0VTTN7te9TJnItgvyWHy.jpg", "2007-03-05", 7.6, 282)
         )
     ),
     DiscoveryPreset(
@@ -706,10 +718,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Older kids",
         subtitle = "Bigger stories to review for intensity and scares.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Movie, 10191),
-            DiscoverySeed(RemoteMediaType.Tv, 82456),
-            DiscoverySeed(RemoteMediaType.Tv, 246),
-            DiscoverySeed(RemoteMediaType.Movie, 501929)
+            movie(10191, "How to Train Your Dragon", "/ygGmAO60t8GyqUo9xYeYxSZAR3b.jpg", "/59vDC1BuEQvti24OMr0ZvtAK6R1.jpg", "2010-03-18", 7.9, 14467),
+            tv(82456, "Hilda", "/giWufGBC7uxrmK9ZESdk9D1cyGm.jpg", "/x5YFTfPDug6eF76vVuDnbaoNVQK.jpg", "2018-09-21", 8.4, 240),
+            tv(246, "Avatar: The Last Airbender", "/9RQhVb3r3mCMqYVhLoCu4EvuipP.jpg", "/kU98MbVVgi72wzceyrEbClZmMFe.jpg", "2005-02-21", 8.8, 4943),
+            movie(501929, "The Mitchells vs. the Machines", "/mI2Di7HmskQQ34kz0iau6J1vr70.jpg", "/vsZLf5uog08pAnfsMuDWrsLWUUF.jpg", "2021-04-22", 7.8, 3401)
         )
     ),
     DiscoveryPreset(
@@ -717,10 +729,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Family night",
         subtitle = "Broad, familiar picks for mixed-age viewing.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Movie, 277834),
-            DiscoverySeed(RemoteMediaType.Movie, 8587),
-            DiscoverySeed(RemoteMediaType.Movie, 116149),
-            DiscoverySeed(RemoteMediaType.Movie, 862)
+            movie(277834, "Moana", "/9tzN8sPbyod2dsa0lwuvrwBDWra.jpg", "/iYLKMV7PIBtFmtygRrhSiyzcVsF.jpg", "2016-10-13", 7.6, 13810),
+            movie(8587, "The Lion King", "/sKCr78MXSLixwmZ8DyJLrpMsd15.jpg", "/q00H8EqULYSK74lgevMkhmGGLHn.jpg", "1994-06-15", 8.3, 19813),
+            movie(116149, "Paddington", "/wpchRGhRhvhtU083PfX2yixXtiw.jpg", "/kfofK4GzJsJZhCShqZY438c8Y4Y.jpg", "2014-11-24", 7.1, 4273),
+            movie(862, "Toy Story", "/uXDfjJbdP4ijW5hWSBrPrlKpxab.jpg", "/3Rfvhy1Nl6sSGJwyjb0QiZzZYlB.jpg", "1995-11-22", 8.0, 20132)
         )
     ),
     DiscoveryPreset(
@@ -728,10 +740,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Low intensity",
         subtitle = "Calmer stories to check first when intensity matters.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Movie, 16859),
-            DiscoverySeed(RemoteMediaType.Movie, 8392),
-            DiscoverySeed(RemoteMediaType.Movie, 263109),
-            DiscoverySeed(RemoteMediaType.Movie, 227973)
+            movie(16859, "Kiki's Delivery Service", "/Aufa4YdZIv4AXpR9rznwVA5SEfd.jpg", "/h5pAEVma835u8xoE60kmLVopLct.jpg", "1989-07-29", 7.8, 4620, "ja"),
+            movie(8392, "My Neighbor Totoro", "/rtGDOeG9LzoerkDGZF9dnVeLppL.jpg", "/zkThiZAaAie8Lw7RAc5yPTOewBV.jpg", "1988-04-16", 8.1, 8897, "ja"),
+            movie(263109, "Shaun the Sheep Movie", "/1GMvKNy2Ht5QwI0oV0ycYnxzWdC.jpg", "/sQbpfYoGiEBUnr8tBjHP51heNNT.jpg", "2015-02-05", 7.0, 1525),
+            movie(227973, "The Peanuts Movie", "/aiwdwnl7RFs1vcBanOKr13ye3wE.jpg", "/361quVX94drEaExOKScbZYsxijG.jpg", "2015-11-05", 7.0, 1811)
         )
     ),
     DiscoveryPreset(
@@ -739,10 +751,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Review first: nudity concern",
         subtitle = "Popular picks to review when nudity is a hard concern.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Movie, 12),
-            DiscoverySeed(RemoteMediaType.Movie, 150540),
-            DiscoverySeed(RemoteMediaType.Movie, 9806),
-            DiscoverySeed(RemoteMediaType.Movie, 324857)
+            movie(12, "Finding Nemo", "/5lc6nQc0VhWFYFbNv016xze8Jvy.jpg", "/eCynaAOgYYiw5yN5lBwz3IxqvaW.jpg", "2003-05-30", 7.8, 20667),
+            movie(150540, "Inside Out", "/2H1TmgdfNtsKlU9jKdeNyYL5y8T.jpg", "/o3i6AfTcWAuNvzAUV3q5lOmi6Gx.jpg", "2015-06-17", 7.9, 23585),
+            movie(9806, "The Incredibles", "/2LqaLgk4Z226KkgPJuiOQ58wvrm.jpg", "/lxwzY9vNwjDgxWKt3zZ6zcU6rEJ.jpg", "2004-10-27", 7.7, 19012),
+            movie(324857, "Spider-Man: Into the Spider-Verse", "/iiZZdoQBEYBv6id8su7ImL0oCbD.jpg", "/8mnXR9rey5uQ08rZAvzojKWbDQS.jpg", "2018-12-06", 8.4, 17395)
         )
     ),
     DiscoveryPreset(
@@ -750,10 +762,10 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Short watches",
         subtitle = "Easy options for limited time windows.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Tv, 80616),
-            DiscoverySeed(RemoteMediaType.Movie, 13187),
-            DiscoverySeed(RemoteMediaType.Tv, 3902),
-            DiscoverySeed(RemoteMediaType.Tv, 114501)
+            tv(80616, "Wallace & Gromit's Cracking Contraptions", "/vpEk64myGeCCCmnG7r9EiBymfZt.jpg", "/snFImD0BfsFJSuTDuUKAc5u6t0O.jpg", "2002-10-15", 8.4, 16),
+            movie(13187, "A Charlie Brown Christmas", "/vtaufTzJBMJAeziQA1eP4BLU24C.jpg", "/ucWnzjWWWd6CmRal8J3tWz6m1A7.jpg", "1965-12-09", 7.7, 786),
+            tv(3902, "Shaun the Sheep", "/z2gPfTQd3I0JLWOAEdKYMQRLoun.jpg", "/onwny8s0VTTN7te9TJnItgvyWHy.jpg", "2007-03-05", 7.6, 282),
+            tv(114501, "Dug Days", "/e5kT33XH2gX7xBFIK1uUJAvU5dj.jpg", "/pgWgB8AfFOtwKSSoGYbmWsO5Mfq.jpg", "2021-09-01", 7.4, 543)
         )
     ),
     DiscoveryPreset(
@@ -761,13 +773,35 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         title = "Tweens and teens",
         subtitle = "Higher-energy titles worth checking against profile limits.",
         seeds = listOf(
-            DiscoverySeed(RemoteMediaType.Movie, 671),
-            DiscoverySeed(RemoteMediaType.Movie, 411),
-            DiscoverySeed(RemoteMediaType.Tv, 103540),
-            DiscoverySeed(RemoteMediaType.Tv, 40075)
+            movie(671, "Harry Potter and the Philosopher's Stone", "/wuMc08IPKEatf9rnMNXvIDxqP4W.jpg", "/1XAC6RPT01UX9EQGy2JVn5c8pgy.jpg", "2001-11-16", 7.9, 29774),
+            movie(411, "The Chronicles of Narnia", "/iREd0rNCjYdf5Ar0vfaW32yrkm.jpg", "/tuDhEdza074bA497bO9WFEPs6O6.jpg", "2005-12-07", 7.1, 11582),
+            tv(103540, "Percy Jackson and the Olympians", "/40eFcTzZier3DWLqldsP5VHxeoD.jpg", "/danN2NzJTMouaBEkDWTnyDjDxUt.jpg", "2023-12-19", 7.3, 785),
+            tv(40075, "Gravity Falls", "/qwi3p6PzKfQZ4YXBzv3CP5pO2dE.jpg", "/lhg7eA6CTOCL10QNVdKiyxkgPsL.jpg", "2012-06-15", 8.6, 3511)
         )
     )
 )
+
+private fun movie(
+    tmdbId: Int,
+    title: String,
+    posterPath: String?,
+    backdropPath: String?,
+    releaseDate: String?,
+    voteAverage: Double,
+    voteCount: Int,
+    originalLanguage: String = "en"
+): DiscoverySeed = DiscoverySeed(RemoteMediaType.Movie, tmdbId, title, posterPath, backdropPath, releaseDate, voteAverage, voteCount, originalLanguage)
+
+private fun tv(
+    tmdbId: Int,
+    title: String,
+    posterPath: String?,
+    backdropPath: String?,
+    releaseDate: String?,
+    voteAverage: Double,
+    voteCount: Int,
+    originalLanguage: String = "en"
+): DiscoverySeed = DiscoverySeed(RemoteMediaType.Tv, tmdbId, title, posterPath, backdropPath, releaseDate, voteAverage, voteCount, originalLanguage)
 
 class ContentLensViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

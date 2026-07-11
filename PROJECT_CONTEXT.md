@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.7-age-shelves`
+- Latest published release: `v0.3.8-instant-home`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
 - Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
@@ -116,6 +116,10 @@ Implemented MVP:
 - `v0.3.7-age-shelves`: renames the clunky kids-under-3 shelf to `Young children`, adds age-band shelves for preschool, early elementary, older kids, and tweens/teens, and loads preset shelf prechecks in parallel so each shelf can appear as soon as its exact-ID posters and safety summaries are ready.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.7-age-shelves`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.7-age-shelves.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.8-instant-home`: embeds curated preset card metadata locally so Home shelves render immediately without startup TMDB queries, keeps exact TMDB IDs for all preset picks, and moves content-safety lookups to background cache warm-up jobs so ratings update in place instead of blocking first paint.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.8-instant-home`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.8-instant-home.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

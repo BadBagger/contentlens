@@ -171,6 +171,13 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 val sensitivityFlow = base.activeProfileId?.let { dao.observeSensitivities(it) } ?: flowOf(emptyList())
                 combine(entriesFlow, sensitivityFlow) { entries, sensitivities ->
                     val selected = base.titles.firstOrNull { it.id == titleId }
+                    val remoteDetail = (base.remoteDetail as? RemoteDetailUiState.Loaded)?.let { loaded ->
+                        val entries = loaded.reports.map { it.toEntry() }
+                        loaded.copy(
+                            summary = ratingEngine.summarize(entries),
+                            fit = fitEngine.evaluate(entries, sensitivities)
+                        )
+                    } ?: base.remoteDetail
                     val titleLens = selected?.let {
                         TitleLens(
                             title = it,
@@ -192,7 +199,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         settings = base.settings,
                         query = base.query,
                         remoteSearch = base.remoteSearch,
-                        remoteDetail = base.remoteDetail
+                        remoteDetail = remoteDetail
                     )
                 }
             }.collect { _uiState.value = it }

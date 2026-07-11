@@ -41,8 +41,8 @@ android {
         applicationId = "com.smithware.contentlens"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.2.3-remote-reports"
+        versionCode = 9
+        versionName = "0.2.4-report-visibility"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "TMDB_READ_ACCESS_TOKEN", tmdbReadAccessToken.asBuildConfigString())

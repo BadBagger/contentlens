@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.2.3-remote-reports`
+- Latest published release: `v0.2.4-report-visibility`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key.
 - Storage: local Room database plus DataStore settings
 - Backend: none for MVP
@@ -68,6 +68,10 @@ Implemented MVP:
 - `v0.2.3-remote-reports`: adds local ContentLens report storage for real TMDB movie/TV results, keyed separately from seeded demo titles; remote title details now show local category reports, computed ContentLens rating, profile fit, spoiler controls, and an inline local report form while keeping unknown-data messaging when no reports exist.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.3-remote-reports`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.3-remote-reports.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.2.4-report-visibility`: surfaces local TMDB-title report data on search result cards, adds TMDB-title submissions to the Reports screen, and recalculates open remote-title profile fit when the active profile changes.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.2.4-report-visibility`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.2.4-report-visibility.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

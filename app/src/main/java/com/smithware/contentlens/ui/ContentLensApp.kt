@@ -91,6 +91,7 @@ import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbCastMember
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
+import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.FitLabel
@@ -286,6 +287,7 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
         when (val detail = state.remoteDetail) {
             RemoteDetailUiState.None -> RemoteSearchContent(
                 state = state.remoteSearch,
+                remoteReports = state.remoteReports,
                 onRetry = {
                     closeKeyboard()
                     viewModel.retrySearch()
@@ -318,6 +320,7 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
 @Composable
 private fun RemoteSearchContent(
     state: RemoteSearchUiState,
+    remoteReports: List<RemoteContentReportEntity>,
     onRetry: () -> Unit,
     onClear: () -> Unit,
     onLoadMore: () -> Unit,
@@ -350,7 +353,12 @@ private fun RemoteSearchContent(
                 }
             }
             items(state.results, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
-                RemotePosterResultCard(result, state.imageUrlBuilder, onClick = { onResultClick(result) })
+                RemotePosterResultCard(
+                    result = result,
+                    imageUrlBuilder = state.imageUrlBuilder,
+                    reports = remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) },
+                    onClick = { onResultClick(result) }
+                )
             }
             if (state.hasMore) {
                 item {
@@ -372,7 +380,12 @@ private fun RemoteSearchContent(
 }
 
 @Composable
-private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilder: ImageUrlBuilder, onClick: () -> Unit) {
+private fun RemotePosterResultCard(
+    result: NormalizedMediaResult,
+    imageUrlBuilder: ImageUrlBuilder,
+    reports: List<RemoteContentReportEntity> = emptyList(),
+    onClick: () -> Unit
+) {
     Card(
         onClick = onClick,
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -409,7 +422,13 @@ private fun RemotePosterResultCard(result: NormalizedMediaResult, imageUrlBuilde
                     style = MaterialTheme.typography.bodySmall
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AssistChip(onClick = {}, label = { Text("Compatibility pending") })
+                    if (reports.isEmpty()) {
+                        AssistChip(onClick = {}, label = { Text("Compatibility pending") })
+                    } else {
+                        val highest = reports.maxByOrNull { it.severity.score }
+                        AssistChip(onClick = {}, label = { Text("${reports.size} local reports") })
+                        highest?.let { AssistChip(onClick = {}, label = { Text("${it.category.label}: ${it.severity.label}") }) }
+                    }
                     AssistChip(onClick = {}, label = { Text("Match: title search") })
                 }
             }
@@ -948,7 +967,7 @@ private fun SubmitReportScreen(state: AppUiState, viewModel: ContentLensViewMode
         ) {
             Text("Submit locally")
         }
-        ReportsList(state.reports)
+        ReportsList(state.reports, state.remoteReports)
     }
 }
 
@@ -1081,12 +1100,22 @@ private fun ProfileCard(profile: UserProfileEntity, selected: Boolean, onClick: 
 }
 
 @Composable
-private fun ReportsList(reports: List<ContentReportEntity>) {
+private fun ReportsList(reports: List<ContentReportEntity>, remoteReports: List<RemoteContentReportEntity>) {
     SectionTitle("Local submissions")
-    if (reports.isEmpty()) {
+    if (reports.isEmpty() && remoteReports.isEmpty()) {
         EmptyState("No reports available", "Submitted reports will appear here and remain local.")
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            remoteReports.take(5).forEach {
+                InfoCard(
+                    "${it.title}: ${it.category.label} ${it.severity.label}",
+                    listOfNotNull(
+                        it.releaseYear?.toString(),
+                        it.mediaType.lowercase(),
+                        it.explanation
+                    ).joinToString(" - ")
+                )
+            }
             reports.take(5).forEach {
                 InfoCard("${it.category.label}: ${it.severity.label}", it.explanation)
             }

@@ -1,6 +1,8 @@
 package com.smithware.contentlens.data
 
 import androidx.room.Entity
+import androidx.room.ColumnInfo
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import androidx.room.TypeConverter
 import com.smithware.contentlens.domain.ContentCategory
@@ -48,7 +50,7 @@ data class ContentReportEntity(
     val moderationStatus: String = "local_only"
 )
 
-@Entity(tableName = "remote_content_reports")
+@Entity(tableName = "remote_content_reports", indices = [Index("remoteKey")])
 data class RemoteContentReportEntity(
     @PrimaryKey val id: String,
     val remoteKey: String,
@@ -63,8 +65,8 @@ data class RemoteContentReportEntity(
     val season: Int?,
     val episode: Int?,
     val createdAtMillis: Long,
-    val source: String = "Local user report",
-    val moderationStatus: String = "local_only"
+    @ColumnInfo(defaultValue = "'Local user report'") val source: String = "Local user report",
+    @ColumnInfo(defaultValue = "'local_only'") val moderationStatus: String = "local_only"
 )
 
 @Entity(tableName = "user_profiles")

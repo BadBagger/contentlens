@@ -204,7 +204,7 @@ private fun HomeScreen(
         item {
             SectionTitle("Quick picks")
             Text(
-                "Safety summaries load in the background so common shelves are ready faster after the first check.",
+                "Preset shelves appear after their safety summaries are prechecked for this session.",
                 color = Color(0xFF64748B),
                 style = MaterialTheme.typography.bodySmall
             )
@@ -254,7 +254,7 @@ private fun DiscoveryShelf(
             TextButton(onClick = onOpenPreset, enabled = section.results.isNotEmpty()) { Text("See all") }
         }
         when {
-            section.loading -> LoadingState("Loading picks", "Preparing ${section.title.lowercase()} with posters and safety checks.")
+            section.loading -> LoadingState("Prechecking picks", "Loading posters and rating summaries before this shelf appears.")
             section.error != null -> InfoCard(section.title, section.error)
             section.results.isEmpty() -> EmptyState("No picks loaded", "Try Search while this shelf refreshes.")
             section.imageUrlBuilder != null -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

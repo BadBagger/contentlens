@@ -68,6 +68,18 @@ class TmdbClient(
         details.await() to config.await()
     }
 
+    suspend fun details(mediaType: RemoteMediaType, tmdbId: Int): Pair<TmdbTitleDetails, TmdbImageConfiguration> = coroutineScope {
+        if (readAccessToken.isBlank() && apiKey.isBlank()) throw TmdbSearchError.MissingToken()
+        val details = async {
+            when (mediaType) {
+                RemoteMediaType.Movie -> movieDetails(tmdbId)
+                RemoteMediaType.Tv -> tvDetails(tmdbId)
+            }
+        }
+        val config = async { configuration() }
+        details.await() to config.await()
+    }
+
     private suspend fun movieDetails(tmdbId: Int): TmdbTitleDetails = withContext(Dispatchers.IO) {
         try {
             TmdbNormalizer.parseMovieDetails(

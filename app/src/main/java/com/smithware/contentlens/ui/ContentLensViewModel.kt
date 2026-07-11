@@ -22,6 +22,7 @@ import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.data.WatchlistItemEntity
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
 import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
+import com.smithware.contentlens.data.tmdb.RemoteMediaType
 import com.smithware.contentlens.data.tmdb.TmdbClient
 import com.smithware.contentlens.data.tmdb.TmdbImageConfiguration
 import com.smithware.contentlens.data.tmdb.TmdbSearchError
@@ -86,7 +87,12 @@ private data class DiscoveryPreset(
     val key: String,
     val title: String,
     val subtitle: String,
-    val seeds: List<String>
+    val seeds: List<DiscoverySeed>
+)
+
+private data class DiscoverySeed(
+    val mediaType: RemoteMediaType,
+    val tmdbId: Int
 )
 
 sealed class RemoteSearchUiState {
@@ -503,29 +509,35 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private fun loadDiscoveryPresets() {
         viewModelScope.launch {
             defaultDiscoveryPresets().forEach { preset ->
-                launch {
-                    try {
-                        val seedResults = preset.seeds.map { seed ->
-                            async { tmdbClient.searchAll(seed, page = 1) }
-                        }.map { it.await() }
-                        val config = seedResults.firstOrNull()?.second ?: tmdbClient.configuration()
-                        val results = seedResults
-                            .flatMap { it.first.results.take(2) }
-                            .distinctBy { it.mediaType to it.tmdbId }
-                            .sortedWith(compareByDescending<NormalizedMediaResult> { it.voteCount }.thenByDescending { it.voteAverage })
-                            .take(8)
-                        discoverySections.value = discoverySections.value.map {
-                            if (it.key == preset.key) {
-                                it.copy(results = results, imageUrlBuilder = ImageUrlBuilder(config), loading = false, error = null)
-                            } else {
-                                it
+                try {
+                    val loaded = preset.seeds.map { seed ->
+                        async { tmdbClient.details(seed.mediaType, seed.tmdbId) }
+                    }.map { it.await() }
+                    val config = loaded.firstOrNull()?.second ?: tmdbClient.configuration()
+                    val details = loaded.map { it.first }
+                    val results = details.map { it.result }
+                    val safetyStates = details.map { detail ->
+                        async {
+                            val state = try {
+                                val report = safetySource.reportFor(detail)
+                                if (report == null) ExternalSafetyState.NoMatch else ExternalSafetyState.Loaded(report)
+                            } catch (error: Throwable) {
+                                error.toExternalSafetyState()
                             }
+                            detail.remoteKey() to state
                         }
-                        prefetchSearchSafety(results.take(3))
-                    } catch (error: Throwable) {
-                        discoverySections.value = discoverySections.value.map {
-                            if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
+                    }.map { it.await() }.toMap()
+                    remoteSafety.value = remoteSafety.value + safetyStates
+                    discoverySections.value = discoverySections.value.map {
+                        if (it.key == preset.key) {
+                            it.copy(results = results, imageUrlBuilder = ImageUrlBuilder(config), loading = false, error = null)
+                        } else {
+                            it
                         }
+                    }
+                } catch (error: Throwable) {
+                    discoverySections.value = discoverySections.value.map {
+                        if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
                     }
                 }
             }
@@ -658,37 +670,67 @@ private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
         key = "little-kids",
         title = "Best for kids under 3",
         subtitle = "Gentle preschool and toddler-friendly starting points.",
-        seeds = listOf("Bluey", "Daniel Tiger", "Puffin Rock", "Winnie the Pooh")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Tv, 82728),
+            DiscoverySeed(RemoteMediaType.Tv, 40050),
+            DiscoverySeed(RemoteMediaType.Tv, 69926),
+            DiscoverySeed(RemoteMediaType.Tv, 2005)
+        )
     ),
     DiscoveryPreset(
         key = "family-night",
         title = "Family night",
         subtitle = "Broad, familiar picks for mixed-age viewing.",
-        seeds = listOf("Moana", "The Lion King", "Paddington", "Toy Story")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Movie, 277834),
+            DiscoverySeed(RemoteMediaType.Movie, 8587),
+            DiscoverySeed(RemoteMediaType.Movie, 116149),
+            DiscoverySeed(RemoteMediaType.Movie, 862)
+        )
     ),
     DiscoveryPreset(
         key = "low-intensity",
         title = "Low intensity",
         subtitle = "Calmer stories to check first when intensity matters.",
-        seeds = listOf("Kiki's Delivery Service", "My Neighbor Totoro", "A Shaun the Sheep Movie", "The Peanuts Movie")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Movie, 16859),
+            DiscoverySeed(RemoteMediaType.Movie, 8392),
+            DiscoverySeed(RemoteMediaType.Movie, 263109),
+            DiscoverySeed(RemoteMediaType.Movie, 227973)
+        )
     ),
     DiscoveryPreset(
         key = "no-nudity-starting-points",
         title = "Review first: nudity concern",
         subtitle = "Popular picks to review when nudity is a hard concern.",
-        seeds = listOf("Finding Nemo", "Inside Out", "The Incredibles", "Spider-Man Into the Spider-Verse")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Movie, 12),
+            DiscoverySeed(RemoteMediaType.Movie, 150540),
+            DiscoverySeed(RemoteMediaType.Movie, 9806),
+            DiscoverySeed(RemoteMediaType.Movie, 324857)
+        )
     ),
     DiscoveryPreset(
         key = "short-watches",
         title = "Short watches",
         subtitle = "Easy options for limited time windows.",
-        seeds = listOf("Wallace and Gromit", "Charlie Brown", "Shaun the Sheep", "Dug Days")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Tv, 80616),
+            DiscoverySeed(RemoteMediaType.Movie, 13187),
+            DiscoverySeed(RemoteMediaType.Tv, 3902),
+            DiscoverySeed(RemoteMediaType.Tv, 114501)
+        )
     ),
     DiscoveryPreset(
         key = "teen-adventure",
         title = "Teen adventure",
         subtitle = "Higher-energy titles worth checking against profile limits.",
-        seeds = listOf("Harry Potter", "Spider-Man", "Percy Jackson", "Avatar The Last Airbender")
+        seeds = listOf(
+            DiscoverySeed(RemoteMediaType.Movie, 671),
+            DiscoverySeed(RemoteMediaType.Movie, 557),
+            DiscoverySeed(RemoteMediaType.Tv, 103540),
+            DiscoverySeed(RemoteMediaType.Tv, 246)
+        )
     )
 )
 

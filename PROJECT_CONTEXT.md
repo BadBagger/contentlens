@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.5-discovery-cache`
+- Latest published release: `v0.3.6-prechecked-presets`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
 - Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
@@ -108,6 +108,10 @@ Implemented MVP:
 - `v0.3.5-discovery-cache`: adds image-driven home discovery shelves for common needs such as kids under 3, family night, low intensity, nudity concerns, short watches, and teen adventure; each shelf loads from curated TMDB seed titles and warms the existing safety cache for the first visible picks so repeated ratings appear faster.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.5-discovery-cache`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.5-discovery-cache.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.6-prechecked-presets`: changes discovery shelves from ambiguous TMDB text searches to exact curated TMDB IDs, fixes the under-3 Pooh item to the intended TV show instead of horror remakes, and keeps each shelf in a prechecking state until rating summaries are loaded into the session cache.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.6-prechecked-presets`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.6-prechecked-presets.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

@@ -49,8 +49,17 @@ data class TmdbTitleDetails(
 data class TmdbWatchProvider(
     val id: Int,
     val name: String,
-    val logoPath: String?
+    val logoPath: String?,
+    val accessType: WatchAccessType = WatchAccessType.Subscription
 )
+
+enum class WatchAccessType(val label: String) {
+    Subscription("Included with subscription"),
+    Free("Free"),
+    Ads("Free with ads"),
+    Rent("Rent"),
+    Buy("Buy")
+}
 
 data class TmdbCastMember(
     val id: Int,

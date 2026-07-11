@@ -14,6 +14,7 @@ import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.ProfileSensitivityEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
 import com.smithware.contentlens.data.SettingsStore
+import com.smithware.contentlens.data.StreamingServiceEntity
 import com.smithware.contentlens.data.safety.ConfiguredContentSafetySource
 import com.smithware.contentlens.data.safety.DoesTheDogDieError
 import com.smithware.contentlens.data.safety.ExternalSafetyState
@@ -28,6 +29,7 @@ import com.smithware.contentlens.data.tmdb.TmdbClient
 import com.smithware.contentlens.data.tmdb.TmdbImageConfiguration
 import com.smithware.contentlens.data.tmdb.TmdbSearchError
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
+import com.smithware.contentlens.data.tmdb.TmdbWatchProvider
 import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.BoundaryEvaluation
@@ -69,6 +71,8 @@ data class AppUiState(
     val sensitivities: List<ProfileSensitivityEntity> = emptyList(),
     val allSensitivities: List<ProfileSensitivityEntity> = emptyList(),
     val activeProfileIds: Set<String> = emptySet(),
+    val streamingServices: List<StreamingServiceEntity> = emptyList(),
+    val remoteAvailability: Map<String, List<TmdbWatchProvider>> = emptyMap(),
     val watchlist: List<WatchlistItemEntity> = emptyList(),
     val reports: List<ContentReportEntity> = emptyList(),
     val remoteReports: List<RemoteContentReportEntity> = emptyList(),
@@ -180,11 +184,13 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val query = MutableStateFlow("")
     private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
     private val remoteSafety = MutableStateFlow<Map<String, ExternalSafetyState>>(emptyMap())
+    private val remoteAvailability = MutableStateFlow<Map<String, List<TmdbWatchProvider>>>(emptyMap())
     private val discoverySections = MutableStateFlow(defaultDiscoverySections())
     private val remoteDetail = MutableStateFlow<RemoteDetailUiState>(RemoteDetailUiState.None)
     private var remoteSearchJob: Job? = null
     private var remoteDetailJob: Job? = null
     private val remoteSafetyJobs = mutableMapOf<String, Job>()
+    private val remoteAvailabilityJobs = mutableMapOf<String, Job>()
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
@@ -197,26 +203,31 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             val profileBase = combine(dao.observeProfiles(), dao.observeAllSensitivities()) { profiles, sensitivities ->
                 ProfileBase(profiles, sensitivities)
             }
+            val watchBase = combine(dao.observeWatchlistItems(), dao.observeStreamingServices()) { watchlist, services ->
+                WatchBase(watchlist, services)
+            }
             val storedBase = combine(
                 dao.observeTitles(),
                 profileBase,
-                dao.observeWatchlistItems(),
+                watchBase,
                 reportBase,
                 settingsStore.settings
-            ) { titles, profileState, watchlist, reports, settings ->
-                StoredBase(titles, profileState.profiles, profileState.sensitivities, watchlist, reports.reports, reports.remoteReports, settings)
+            ) { titles, profileState, watchState, reports, settings ->
+                StoredBase(titles, profileState.profiles, profileState.sensitivities, watchState.watchlist, watchState.services, reports.reports, reports.remoteReports, settings)
             }
-            val storedState = combine(storedBase, remoteSearch, remoteSafety, discoverySections) { stored, searchState, safetyState, discovery ->
+            val storedState = combine(storedBase, remoteSearch, remoteSafety, remoteAvailability, discoverySections) { stored, searchState, safetyState, availabilityState, discovery ->
                 StoredState(
                     titles = stored.titles,
                     profiles = stored.profiles,
                     allSensitivities = stored.allSensitivities,
                     watchlist = stored.watchlist,
+                    streamingServices = stored.streamingServices,
                     reports = stored.reports,
                     remoteReports = stored.remoteReports,
                     settings = stored.settings,
                     remoteSearch = searchState,
                     remoteSafety = safetyState,
+                    remoteAvailability = availabilityState,
                     discoverySections = discovery
                 )
             }
@@ -235,6 +246,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     profiles = stored.profiles,
                     allSensitivities = stored.allSensitivities,
                     watchlist = stored.watchlist,
+                    streamingServices = stored.streamingServices,
                     reports = stored.reports,
                     remoteReports = stored.remoteReports,
                     settings = stored.settings,
@@ -243,6 +255,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     query = control.query,
                     remoteSearch = stored.remoteSearch,
                     remoteSafety = stored.remoteSafety,
+                    remoteAvailability = stored.remoteAvailability,
                     discoverySections = stored.discoverySections,
                     remoteDetail = storedWithDetail.remoteDetail
                 )
@@ -286,12 +299,14 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         allSensitivities = base.allSensitivities,
                         activeProfileIds = base.activeProfileIds,
                         watchlist = base.watchlist,
+                        streamingServices = base.streamingServices,
                         reports = base.reports,
                         remoteReports = base.remoteReports,
                         settings = base.settings,
                         query = base.query,
                         remoteSearch = base.remoteSearch,
                         remoteSafety = base.remoteSafety,
+                        remoteAvailability = base.remoteAvailability,
                         discoverySections = base.discoverySections,
                         remoteDetail = remoteDetail
                     )
@@ -326,6 +341,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     boundary = fitEngine.evaluateDetailed(localEntries, uiState.value.sensitivities, uiState.value.profiles.filter { it.id in uiState.value.activeProfileIds })
                 )
                 remoteDetail.value = loaded
+                remoteAvailability.value = remoteAvailability.value + (safetyKey to details.watchProviders)
                 if (cachedSafety !is ExternalSafetyState.Loaded && cachedSafety !is ExternalSafetyState.NoMatch) {
                     loadExternalSafety(loaded)
                 }
@@ -431,6 +447,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 totalResults = results.size
             )
             prefetchSearchSafety(results)
+            prefetchSearchAvailability(results)
         } else {
             startRemoteSearch(section.title, skipDebounce = true)
         }
@@ -453,6 +470,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     isLoadingMore = false
                 )
                 prefetchSearchSafety(page.results)
+                prefetchSearchAvailability(page.results)
             } catch (error: Throwable) {
                 remoteSearch.value = error.toSearchUiState(current.query)
             }
@@ -483,6 +501,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                                 totalPages = page.totalPages,
                                 totalResults = page.totalResults
                             ).also { prefetchSearchSafety(page.results) }
+                                .also { prefetchSearchAvailability(page.results) }
                         }
                     } catch (error: Throwable) {
                         remoteSearch.value = error.toSearchUiState(trimmed)
@@ -613,6 +632,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun prefetchSearchAvailability(results: List<NormalizedMediaResult>) {
+        results.take(5).forEach { result ->
+            val key = remoteMediaKey(result.tmdbId, result.mediaType)
+            if (remoteAvailability.value[key] != null || remoteAvailabilityJobs[key]?.isActive == true) return@forEach
+            remoteAvailabilityJobs[key] = viewModelScope.launch {
+                val providers = runCatching { tmdbClient.details(result).first.watchProviders }.getOrDefault(emptyList())
+                remoteAvailability.value = remoteAvailability.value + (key to providers)
+            }
+        }
+    }
+
     private fun loadDiscoveryPresets() {
         viewModelScope.launch {
             val feedStates = featuredFeedClient.safetyStates()
@@ -646,11 +676,16 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch { settingsStore.setShowUserReports(enabled) }
     }
 
+    fun setStreamingServiceEnabled(providerId: Int, enabled: Boolean) {
+        viewModelScope.launch { dao.setStreamingServiceEnabled(providerId, enabled) }
+    }
+
     private data class BaseState(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
         val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
+        val streamingServices: List<StreamingServiceEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
@@ -659,6 +694,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val query: String,
         val remoteSearch: RemoteSearchUiState,
         val remoteSafety: Map<String, ExternalSafetyState>,
+        val remoteAvailability: Map<String, List<TmdbWatchProvider>>,
         val discoverySections: List<DiscoverySectionState>,
         val remoteDetail: RemoteDetailUiState
     )
@@ -668,11 +704,13 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val profiles: List<UserProfileEntity>,
         val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
+        val streamingServices: List<StreamingServiceEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
         val remoteSearch: RemoteSearchUiState,
         val remoteSafety: Map<String, ExternalSafetyState>,
+        val remoteAvailability: Map<String, List<TmdbWatchProvider>>,
         val discoverySections: List<DiscoverySectionState>
     )
 
@@ -691,11 +729,17 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val sensitivities: List<ProfileSensitivityEntity>
     )
 
+    private data class WatchBase(
+        val watchlist: List<WatchlistItemEntity>,
+        val services: List<StreamingServiceEntity>
+    )
+
     private data class StoredBase(
         val titles: List<MediaTitleEntity>,
         val profiles: List<UserProfileEntity>,
         val allSensitivities: List<ProfileSensitivityEntity>,
         val watchlist: List<WatchlistItemEntity>,
+        val streamingServices: List<StreamingServiceEntity>,
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings

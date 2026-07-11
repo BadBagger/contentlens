@@ -54,6 +54,9 @@ interface ContentLensDao {
     @Query("SELECT * FROM watchlist_items ORDER BY addedAtMillis DESC")
     fun observeWatchlistItems(): Flow<List<WatchlistItemEntity>>
 
+    @Query("SELECT * FROM streaming_services ORDER BY providerName")
+    fun observeStreamingServices(): Flow<List<StreamingServiceEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertTitles(items: List<MediaTitleEntity>)
 
@@ -78,11 +81,20 @@ interface ContentLensDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertWatchlistItem(item: WatchlistItemEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertStreamingServices(items: List<StreamingServiceEntity>)
+
+    @Query("UPDATE streaming_services SET enabled = :enabled WHERE providerId = :providerId")
+    suspend fun setStreamingServiceEnabled(providerId: Int, enabled: Boolean)
+
     @Query("DELETE FROM watchlist_items WHERE titleId = :titleId")
     suspend fun removeWatchlistItem(titleId: String)
 
     @Query("SELECT COUNT(*) FROM media_titles")
     suspend fun titleCount(): Int
+
+    @Query("SELECT COUNT(*) FROM streaming_services")
+    suspend fun streamingServiceCount(): Int
 }
 
 @Database(
@@ -93,9 +105,10 @@ interface ContentLensDao {
         RemoteContentReportEntity::class,
         UserProfileEntity::class,
         ProfileSensitivityEntity::class,
-        WatchlistItemEntity::class
+        WatchlistItemEntity::class,
+        StreamingServiceEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(ContentLensConverters::class)
@@ -111,7 +124,7 @@ abstract class ContentLensDatabase : RoomDatabase() {
                     context.applicationContext,
                     ContentLensDatabase::class.java,
                     "contentlens.db"
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -140,6 +153,27 @@ abstract class ContentLensDatabase : RoomDatabase() {
                     """.trimIndent()
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_remote_content_reports_remoteKey ON remote_content_reports(remoteKey)")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS streaming_services (
+                        providerId INTEGER NOT NULL PRIMARY KEY,
+                        providerName TEXT NOT NULL,
+                        logoPath TEXT,
+                        enabled INTEGER NOT NULL DEFAULT 0,
+                        region TEXT NOT NULL DEFAULT 'US',
+                        integrationKind TEXT NOT NULL DEFAULT 'Manual selection',
+                        accountConnected INTEGER NOT NULL DEFAULT 0,
+                        watchHistoryConnected INTEGER NOT NULL DEFAULT 0,
+                        plexServerConnected INTEGER NOT NULL DEFAULT 0,
+                        selectedAccessTypes TEXT NOT NULL DEFAULT 'Subscription,Free,Ads'
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }

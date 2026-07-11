@@ -213,8 +213,14 @@ private fun JSONArray.firstCertification(): String? {
 
 private fun JSONObject?.optUsProviders(): List<TmdbWatchProvider> {
     val us = this?.optJSONObject("results")?.optJSONObject("US") ?: return emptyList()
-    val arrays = listOf("flatrate", "free", "ads", "rent", "buy")
-    return arrays.flatMap { key ->
+    val arrays = listOf(
+        "flatrate" to WatchAccessType.Subscription,
+        "free" to WatchAccessType.Free,
+        "ads" to WatchAccessType.Ads,
+        "rent" to WatchAccessType.Rent,
+        "buy" to WatchAccessType.Buy
+    )
+    return arrays.flatMap { (key, accessType) ->
         val array = us.optJSONArray(key) ?: return@flatMap emptyList()
         buildList {
             for (index in 0 until array.length()) {
@@ -225,11 +231,12 @@ private fun JSONObject?.optUsProviders(): List<TmdbWatchProvider> {
                         TmdbWatchProvider(
                             id = provider.optInt("provider_id", 0),
                             name = providerName,
-                            logoPath = provider.optNullableString("logo_path")
+                            logoPath = provider.optNullableString("logo_path"),
+                            accessType = accessType
                         )
                     )
                 }
             }
         }
-    }.distinctBy { it.id.takeIf { id -> id != 0 }?.toString() ?: it.name }.take(8)
+    }.distinctBy { "${it.id.takeIf { id -> id != 0 } ?: it.name}-${it.accessType.name}" }.take(12)
 }

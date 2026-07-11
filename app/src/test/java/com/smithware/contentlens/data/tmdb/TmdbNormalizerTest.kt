@@ -109,6 +109,7 @@ class TmdbNormalizerTest {
         assertEquals("Moana 2", details.similar.single().title)
         assertEquals("Disney Plus", details.watchProviders.single().name)
         assertEquals("/logo.jpg", details.watchProviders.single().logoPath)
+        assertEquals(WatchAccessType.Subscription, details.watchProviders.single().accessType)
     }
 
     @Test

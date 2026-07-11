@@ -9,6 +9,7 @@ import com.smithware.contentlens.domain.ContentCategory
 import com.smithware.contentlens.domain.MediaType
 import com.smithware.contentlens.domain.Sensitivity
 import com.smithware.contentlens.domain.Severity
+import com.smithware.contentlens.data.tmdb.WatchAccessType
 
 @Entity(tableName = "media_titles")
 data class MediaTitleEntity(
@@ -88,6 +89,25 @@ data class WatchlistItemEntity(
     @PrimaryKey val titleId: String,
     val addedAtMillis: Long
 )
+
+@Entity(tableName = "streaming_services")
+data class StreamingServiceEntity(
+    @PrimaryKey val providerId: Int,
+    val providerName: String,
+    val logoPath: String?,
+    val enabled: Boolean = false,
+    val region: String = "US",
+    val integrationKind: String = "Manual selection",
+    val accountConnected: Boolean = false,
+    val watchHistoryConnected: Boolean = false,
+    val plexServerConnected: Boolean = false,
+    val selectedAccessTypes: String = "Subscription,Free,Ads"
+) {
+    fun accessTypes(): Set<WatchAccessType> = selectedAccessTypes
+        .split(',')
+        .mapNotNull { raw -> runCatching { WatchAccessType.valueOf(raw.trim()) }.getOrNull() }
+        .toSet()
+}
 
 class ContentLensConverters {
     @TypeConverter fun categoryToString(value: ContentCategory): String = value.name

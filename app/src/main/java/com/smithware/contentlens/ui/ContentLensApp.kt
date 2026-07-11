@@ -97,6 +97,7 @@ import com.smithware.contentlens.data.ContentReportEntity
 import com.smithware.contentlens.data.MediaTitleEntity
 import com.smithware.contentlens.data.ProfileSensitivityEntity
 import com.smithware.contentlens.data.RemoteContentReportEntity
+import com.smithware.contentlens.data.StreamingServiceEntity
 import com.smithware.contentlens.data.safety.ExternalSafetyEntry
 import com.smithware.contentlens.data.safety.ExternalSafetyState
 import com.smithware.contentlens.data.tmdb.ImageUrlBuilder
@@ -104,6 +105,7 @@ import com.smithware.contentlens.data.tmdb.NormalizedMediaResult
 import com.smithware.contentlens.data.tmdb.TmdbCastMember
 import com.smithware.contentlens.data.tmdb.TmdbTitleDetails
 import com.smithware.contentlens.data.tmdb.TmdbWatchProvider
+import com.smithware.contentlens.data.tmdb.WatchAccessType
 import com.smithware.contentlens.data.tmdb.remoteMediaKey
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.domain.BoundaryEvaluation
@@ -122,6 +124,7 @@ private enum class Screen(val label: String, val icon: ImageVector) {
     Home("Home", Icons.Outlined.Home),
     Search("Search", Icons.Outlined.Search),
     Watchlist("Watchlist", Icons.Outlined.BookmarkAdd),
+    Services("Services", Icons.Outlined.PlayCircle),
     Profiles("Profiles", Icons.Outlined.Person),
     Report("Report", Icons.Outlined.RateReview),
     Settings("Settings", Icons.Outlined.Settings)
@@ -192,6 +195,10 @@ fun ContentLensApp(viewModel: ContentLensViewModel) {
                     )
                     Screen.Search -> SearchScreen(state, viewModel, onOpenReport = { screen = Screen.Report })
                     Screen.Watchlist -> WatchlistScreen(state, viewModel)
+                    Screen.Services -> ServicesScreen(state, viewModel) {
+                        viewModel.selectRemoteResult(it)
+                        screen = Screen.Search
+                    }
                     Screen.Profiles -> ProfilesScreen(state, viewModel)
                     Screen.Report -> SubmitReportScreen(state, viewModel)
                     Screen.Settings -> SettingsScreen(state, viewModel)
@@ -428,6 +435,8 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
                 state = state.remoteSearch,
                 remoteReports = state.remoteReports,
                 remoteSafety = state.remoteSafety,
+                remoteAvailability = state.remoteAvailability,
+                selectedServices = state.streamingServices.filter { it.enabled },
                 profiles = state.profiles.filter { it.id in state.activeProfileIds },
                 sensitivities = state.sensitivities,
                 onRetry = {
@@ -464,6 +473,8 @@ private fun RemoteSearchContent(
     state: RemoteSearchUiState,
     remoteReports: List<RemoteContentReportEntity>,
     remoteSafety: Map<String, ExternalSafetyState>,
+    remoteAvailability: Map<String, List<TmdbWatchProvider>>,
+    selectedServices: List<StreamingServiceEntity>,
     profiles: List<UserProfileEntity>,
     sensitivities: List<ProfileSensitivityEntity>,
     onRetry: () -> Unit,
@@ -472,6 +483,7 @@ private fun RemoteSearchContent(
     onResultClick: (NormalizedMediaResult) -> Unit
 ) {
     val fitEngine = remember { LocalPersonalFitEngine() }
+    var availabilityFilter by rememberSaveable { mutableStateOf(AvailabilityFilter.AnySelected) }
     when (state) {
         RemoteSearchUiState.Initial -> EmptyState("Search movies and TV", "Type at least two characters to search TMDB for movies and shows.")
         is RemoteSearchUiState.Waiting -> EmptyState("Ready to search", "Keep typing or tap Search. Requests wait briefly so stale searches are cancelled.")
@@ -489,11 +501,13 @@ private fun RemoteSearchContent(
                 val key = remoteMediaKey(result.tmdbId, result.mediaType)
                 val reports = remoteReports.filter { it.remoteKey == key }
                 val safety = remoteSafety[key]
+                val providers = remoteAvailability[key].orEmpty()
                 val boundary = searchBoundaryFor(result, reports, safety, profiles, sensitivities, fitEngine)
-                SearchBoundaryResult(result, reports, safety, boundary)
+                SearchBoundaryResult(result, reports, safety, providers, boundary)
             }
-            val visible = if (showFiltered) evaluated else evaluated.filter { it.boundary.eligible }
-            val hiddenCount = evaluated.size - visible.size
+            val availabilityFiltered = evaluated.filter { it.matchesAvailability(availabilityFilter, selectedServices) }
+            val visible = if (showFiltered) availabilityFiltered else availabilityFiltered.filter { it.boundary.eligible }
+            val hiddenCount = availabilityFiltered.size - visible.size
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -507,6 +521,7 @@ private fun RemoteSearchContent(
                         color = Color(0xFF64748B),
                         style = MaterialTheme.typography.bodySmall
                     )
+                    AvailabilityFilterChips(availabilityFilter) { availabilityFilter = it }
                     if (hiddenCount > 0) {
                         TextButton(onClick = { showFiltered = !showFiltered }) {
                             Text(if (showFiltered) "Hide filtered titles" else "Show $hiddenCount filtered titles")
@@ -520,6 +535,8 @@ private fun RemoteSearchContent(
                     imageUrlBuilder = state.imageUrlBuilder,
                     reports = evaluatedResult.reports,
                     safety = evaluatedResult.safety,
+                    providers = evaluatedResult.providers,
+                    selectedServices = selectedServices,
                     boundary = evaluatedResult.boundary,
                     onClick = { onResultClick(evaluatedResult.result) }
                 )
@@ -550,6 +567,8 @@ private fun RemotePosterResultCard(
     imageUrlBuilder: ImageUrlBuilder,
     reports: List<RemoteContentReportEntity> = emptyList(),
     safety: ExternalSafetyState? = null,
+    providers: List<TmdbWatchProvider> = emptyList(),
+    selectedServices: List<StreamingServiceEntity> = emptyList(),
     boundary: BoundaryEvaluation = BoundaryEvaluation(true, BoundaryStatus.InsufficientInformation, 45),
     onClick: () -> Unit
 ) {
@@ -603,7 +622,7 @@ private fun RemotePosterResultCard(
                         highest?.let { AssistChip(onClick = {}, label = { Text("${it.category.label}: ${it.severity.label}") }) }
                     }
                     topWarning?.let { ContentWarningBadge("${it.category.label}: ${it.severity.label}") }
-                    ProviderStatusBadge()
+                    ProviderLogoChips(providers.matchingSelectedProviders(selectedServices).ifEmpty { providers.take(3) }, imageUrlBuilder)
                 }
                 Text(boundary.explanation, color = boundaryColor(boundary.status), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
@@ -615,8 +634,74 @@ private data class SearchBoundaryResult(
     val result: NormalizedMediaResult,
     val reports: List<RemoteContentReportEntity>,
     val safety: ExternalSafetyState?,
+    val providers: List<TmdbWatchProvider>,
     val boundary: BoundaryEvaluation
 )
+
+private enum class AvailabilityFilter(val label: String) {
+    AnySelected("Selected services"),
+    Subscription("Subscription"),
+    FreeAds("Free with ads"),
+    Rent("Rent"),
+    Buy("Buy"),
+    AnyService("Any service"),
+    NotAvailable("Not available")
+}
+
+@Composable
+private fun AvailabilityFilterChips(selected: AvailabilityFilter, onSelected: (AvailabilityFilter) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        AvailabilityFilter.entries.forEach { filter ->
+            AssistChip(
+                onClick = { onSelected(filter) },
+                leadingIcon = {
+                    if (filter == selected) Icon(Icons.Outlined.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                },
+                label = { Text(filter.label) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderLogoChips(providers: List<TmdbWatchProvider>, imageUrlBuilder: ImageUrlBuilder) {
+    if (providers.isEmpty()) {
+        AssistChip(onClick = {}, label = { Text("Availability pending") })
+        return
+    }
+    providers.take(3).forEach { provider ->
+        AssistChip(
+            onClick = {},
+            leadingIcon = {
+                ProviderLogo(
+                    url = imageUrlBuilder.logo(provider.logoPath),
+                    name = provider.name,
+                    modifier = Modifier.size(18.dp)
+                )
+            },
+            label = { Text("${provider.name}: ${provider.accessType.label}") }
+        )
+    }
+}
+
+private fun SearchBoundaryResult.matchesAvailability(filter: AvailabilityFilter, selectedServices: List<StreamingServiceEntity>): Boolean {
+    val selectedProviders = providers.matchingSelectedProviders(selectedServices)
+    return when (filter) {
+        AvailabilityFilter.AnySelected -> selectedProviders.isNotEmpty()
+        AvailabilityFilter.Subscription -> providers.any { it.accessType == WatchAccessType.Subscription && it.providerIdIn(selectedServices) }
+        AvailabilityFilter.FreeAds -> providers.any { it.accessType in setOf(WatchAccessType.Free, WatchAccessType.Ads) && it.providerIdIn(selectedServices) }
+        AvailabilityFilter.Rent -> providers.any { it.accessType == WatchAccessType.Rent }
+        AvailabilityFilter.Buy -> providers.any { it.accessType == WatchAccessType.Buy }
+        AvailabilityFilter.AnyService -> providers.isNotEmpty()
+        AvailabilityFilter.NotAvailable -> providers.isEmpty()
+    }
+}
+
+private fun TmdbWatchProvider.providerIdIn(services: List<StreamingServiceEntity>): Boolean =
+    services.any { it.enabled && it.providerId == id && accessType in it.accessTypes() }
+
+private fun List<TmdbWatchProvider>.matchingSelectedProviders(services: List<StreamingServiceEntity>): List<TmdbWatchProvider> =
+    filter { it.providerIdIn(services) }
 
 @Composable
 private fun SearchSkeletonList() {
@@ -1249,7 +1334,8 @@ private fun ProviderRow(provider: TmdbWatchProvider, imageUrlBuilder: ImageUrlBu
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(provider.name, fontWeight = FontWeight.SemiBold)
-                Text("Available on ${provider.name} in your region", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                Text("${provider.accessType.label} in your region", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                Text("Availability from TMDB watch providers. Last checked this session.", color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
             }
             Icon(Icons.Outlined.PlayCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         }
@@ -1406,6 +1492,106 @@ private fun WatchlistScreen(state: AppUiState, viewModel: ContentLensViewModel) 
                     viewModel.selectTitle(title.id)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ServicesScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpenRemote: (NormalizedMediaResult) -> Unit) {
+    val searchState = state.remoteSearch as? RemoteSearchUiState.Results
+    val selectedServices = state.streamingServices.filter { it.enabled }
+    val fitEngine = remember { LocalPersonalFitEngine() }
+    val availableToMe = searchState?.results.orEmpty().filter { result ->
+        val reports = state.remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) }
+        val safety = state.remoteSafety[remoteMediaKey(result.tmdbId, result.mediaType)]
+        val providers = state.remoteAvailability[remoteMediaKey(result.tmdbId, result.mediaType)].orEmpty()
+        val boundary = searchBoundaryFor(
+            result = result,
+            reports = reports,
+            safety = safety,
+            profiles = state.profiles.filter { it.id in state.activeProfileIds },
+            sensitivities = state.sensitivities,
+            fitEngine = fitEngine
+        )
+        providers.matchingSelectedProviders(selectedServices).isNotEmpty() && boundary.eligible
+    }
+    LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            Header("Services", "Manual service selection and informational regional availability.")
+        }
+        item {
+            InfoCard(
+                "Integration boundaries",
+                "Selecting Netflix, Hulu, Disney+, Max, and similar services is manual. ContentLens does not request those passwords, scrape account pages, or claim private watch-history access."
+            )
+        }
+        item {
+            InfoCard(
+                "Availability source",
+                "Streaming availability is region-aware for US data from TMDB watch providers and requires JustWatch attribution. Availability means a provider reports the title in the region, not that it is in your personal account."
+            )
+        }
+        items(state.streamingServices, key = { it.providerId }) { service ->
+            ServiceSelectionCard(service, onEnabled = { viewModel.setStreamingServiceEnabled(service.providerId, it) })
+        }
+        item {
+            SectionTitle("Available to me")
+            Text(
+                "Uses your selected services, selected profiles, content boundaries, and current search or shelf results. Last checked this session.",
+                color = Color(0xFF64748B),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        if (searchState == null) {
+            item { EmptyState("Search first", "Run a search or open a shelf so ContentLens can check regional provider availability for those titles.") }
+        } else if (availableToMe.isEmpty()) {
+            item { EmptyState("No matching available titles", "No current results matched your selected services and profile boundaries yet. Availability may still be loading.") }
+        } else {
+            items(availableToMe, key = { "${it.mediaType}-${it.tmdbId}" }) { result ->
+                RemotePosterResultCard(
+                    result = result,
+                    imageUrlBuilder = searchState.imageUrlBuilder,
+                    reports = state.remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) },
+                    safety = state.remoteSafety[remoteMediaKey(result.tmdbId, result.mediaType)],
+                    providers = state.remoteAvailability[remoteMediaKey(result.tmdbId, result.mediaType)].orEmpty(),
+                    selectedServices = selectedServices,
+                    boundary = searchBoundaryFor(
+                        result = result,
+                        reports = state.remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) },
+                        safety = state.remoteSafety[remoteMediaKey(result.tmdbId, result.mediaType)],
+                        profiles = state.profiles.filter { it.id in state.activeProfileIds },
+                        sensitivities = state.sensitivities,
+                        fitEngine = fitEngine
+                    ),
+                    onClick = { onOpenRemote(result) }
+                )
+            }
+        }
+        item {
+            InfoCard(
+                "Plex",
+                "Plex is listed as a local library source. A full connection should use official Plex authentication and Plex Media Server APIs, with tokens stored securely. Manual password entry is not supported."
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServiceSelectionCard(service: StreamingServiceEntity, onEnabled: (Boolean) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(8.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ProviderLogo(url = ImageUrlBuilder().logo(service.logoPath), name = service.providerName, modifier = Modifier.size(42.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(service.providerName, fontWeight = FontWeight.SemiBold)
+                Text(service.integrationKind, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Region ${service.region} / Account ${if (service.accountConnected) "connected" else "not connected"} / Watch history ${if (service.watchHistoryConnected) "imported" else "not imported"}",
+                    color = Color(0xFF64748B),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = service.enabled, onCheckedChange = onEnabled)
         }
     }
 }

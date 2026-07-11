@@ -7,12 +7,29 @@ import com.smithware.contentlens.domain.Severity
 
 object DemoSeedData {
     suspend fun seedIfNeeded(dao: ContentLensDao) {
+        if (dao.streamingServiceCount() == 0) {
+            dao.upsertStreamingServices(streamingServices)
+        }
         if (dao.titleCount() > 0) return
         dao.upsertTitles(titles)
         dao.upsertEntries(entries)
         dao.upsertProfiles(profiles)
         dao.upsertSensitivities(sensitivities)
     }
+
+    val streamingServices = listOf(
+        StreamingServiceEntity(8, "Netflix", "/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg", enabled = true),
+        StreamingServiceEntity(15, "Hulu", "/zxrVdFjIjLqkfnwyghnfywTn3Lh.jpg", enabled = true),
+        StreamingServiceEntity(337, "Disney+", "/7rwgEs15tFwyR9NPQ5vpzxTj19Q.jpg", enabled = true),
+        StreamingServiceEntity(1899, "Max", "/jbe4gVSfRlbPTdESXhEKpornsfu.jpg"),
+        StreamingServiceEntity(9, "Prime Video", "/emthp39XA2YScoYL1p0sdbAH2WA.jpg"),
+        StreamingServiceEntity(531, "Paramount+", "/xbhHHa1YgtpwhC8lb1NQ3ACVcLd.jpg"),
+        StreamingServiceEntity(386, "Peacock", "/xTHltMrZPAJFLQ6qyCBjAnXSmZt.jpg"),
+        StreamingServiceEntity(350, "Apple TV+", "/2E03IAZsX4ZaUqM7tXlctEPMGWS.jpg"),
+        StreamingServiceEntity(73, "Tubi", "/w2TDH9TRI7pltf5LjN3vXzs7QbN.jpg"),
+        StreamingServiceEntity(300, "Pluto TV", "/dB8G41Q6tSL5NBisrIeqByfepBc.jpg"),
+        StreamingServiceEntity(538, "Plex", "/vLZKlXUNDcZR7ilvfY9Wr9k80FZ.jpg", integrationKind = "Manual Plex library placeholder")
+    )
 
     val titles = listOf(
         MediaTitleEntity("stellar-harbor", "Stellar Harbor", 2025, MediaType.Movie, "PG-13", "A stranded engineer joins a rescue crew near a collapsing orbital port.", "Blue"),

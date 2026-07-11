@@ -28,3 +28,14 @@ test("worker matches provider TMDB ids when returned as strings", () => {
   assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "Movie" }, 603, "movie"), true);
   assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "TV" }, 603, "tv"), true);
 });
+
+test("worker exposes featured feed without provider configuration", async () => {
+  const response = await worker.fetch(new Request("https://contentlens.test/v1/featured"), {});
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.schemaVersion, 1);
+  assert.equal(body.sections.length, 9);
+  assert.equal(body.sections[0].items[0].tmdbId, 82728);
+  assert.equal(body.sections.at(-1).key, "teen-adventure");
+});

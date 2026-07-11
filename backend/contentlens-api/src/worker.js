@@ -1,5 +1,6 @@
 const DOG_BASE_URL = "https://www.doesthedogdie.com/api/v3";
 const DEFAULT_CACHE_TTL_SECONDS = 21600;
+const FEATURED_FEED_TTL_MS = 60 * 60 * 1000;
 const cache = new Map();
 
 export default {
@@ -8,6 +9,9 @@ export default {
     if (request.method === "OPTIONS") return json({}, 204);
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ ok: true, service: "contentlens-api" });
+    }
+    if (request.method === "GET" && url.pathname === "/v1/featured") {
+      return featuredResponse(env);
     }
 
     const match = url.pathname.match(/^\/v1\/safety\/tmdb\/(movie|tv)\/(\d+)$/);
@@ -43,6 +47,74 @@ async function safetyResponse(mediaType, tmdbId, url, env) {
   const ttl = Number.parseInt(env?.CACHE_TTL_SECONDS || `${DEFAULT_CACHE_TTL_SECONDS}`, 10) * 1000;
   cache.set(cacheKey, { value: report, expiresAt: Date.now() + ttl });
   return json(report);
+}
+
+async function featuredResponse(env) {
+  const apiKey = env?.DOES_THE_DOG_DIE_API_KEY || "";
+  const feedCacheKey = `featured-feed:v1:${apiKey ? "provider" : "empty"}`;
+  const cached = cache.get(feedCacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return json({ ...cached.value, cached: true });
+  }
+
+  const generatedAt = new Date().toISOString();
+  const safetyByKey = await featuredSafetyByKey(apiKey, env);
+  const sections = FEATURED_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.map((item) => ({
+      ...item,
+      safety: safetyByKey.get(featuredItemKey(item)) ?? null
+    }))
+  }));
+  const feed = {
+    schemaVersion: 1,
+    region: "US",
+    generatedAt,
+    attribution: "Movie and TV metadata is provided by TMDB. Content warnings are provided by DoesTheDogDie community data when available.",
+    sections
+  };
+  cache.set(feedCacheKey, { value: feed, expiresAt: Date.now() + FEATURED_FEED_TTL_MS });
+  return json(feed);
+}
+
+async function safetyReportForItem(apiKey, item, env) {
+  const cacheKey = `featured:${item.mediaType}:${item.tmdbId}`;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.value, cached: true };
+  try {
+    const dogItem = await findDogItem(apiKey, item.mediaType, item.tmdbId, item.title, item.releaseYear ? String(item.releaseYear) : "");
+    if (!dogItem) return null;
+    const detail = await dogFetchJson(apiKey, `/items/${dogItem.id}`);
+    const report = normalizeDogReport(detail);
+    const ttl = Number.parseInt(env?.CACHE_TTL_SECONDS || `${DEFAULT_CACHE_TTL_SECONDS}`, 10) * 1000;
+    cache.set(cacheKey, { value: report, expiresAt: Date.now() + ttl });
+    return report;
+  } catch {
+    return null;
+  }
+}
+
+async function featuredSafetyByKey(apiKey, env) {
+  if (!apiKey) return new Map();
+  const uniqueItems = [];
+  const seen = new Set();
+  for (const section of FEATURED_SECTIONS) {
+    for (const item of section.items) {
+      const key = featuredItemKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uniqueItems.push(item);
+    }
+  }
+  const reports = await mapLimit(uniqueItems, 4, async (item) => [
+    featuredItemKey(item),
+    await safetyReportForItem(apiKey, item, env)
+  ]);
+  return new Map(reports);
+}
+
+function featuredItemKey(item) {
+  return `${item.mediaType}:${item.tmdbId}`;
 }
 
 async function findDogItem(apiKey, mediaType, tmdbId, title, year) {
@@ -183,4 +255,123 @@ function json(payload, status = 200) {
 
 function asArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+const FEATURED_SECTIONS = [
+  {
+    key: "little-kids",
+    title: "Young children",
+    subtitle: "Gentle preschool and toddler-friendly starting points.",
+    items: [
+      featured("tv", 82728, "Bluey", 2018),
+      featured("tv", 40050, "Daniel Tiger's Neighborhood", 2012),
+      featured("tv", 69926, "Puffin Rock", 2015),
+      featured("tv", 2005, "The New Adventures of Winnie the Pooh", 1988)
+    ]
+  },
+  {
+    key: "preschool-favorites",
+    title: "Preschool favorites",
+    subtitle: "Bright, familiar shows for early learners.",
+    items: [
+      featured("tv", 502, "Sesame Street", 1969),
+      featured("tv", 656, "Curious George", 2006),
+      featured("tv", 37472, "Octonauts", 2010),
+      featured("tv", 93548, "Molly of Denali", 2019)
+    ]
+  },
+  {
+    key: "early-elementary",
+    title: "Early elementary",
+    subtitle: "Friendly adventures for growing attention spans.",
+    items: [
+      featured("tv", 35094, "Wild Kratts", 2011),
+      featured("tv", 7248, "The Magic School Bus", 1994),
+      featured("movie", 227973, "The Peanuts Movie", 2015),
+      featured("tv", 3902, "Shaun the Sheep", 2007)
+    ]
+  },
+  {
+    key: "older-kids",
+    title: "Older kids",
+    subtitle: "Bigger stories to review for intensity and scares.",
+    items: [
+      featured("movie", 10191, "How to Train Your Dragon", 2010),
+      featured("tv", 82456, "Hilda", 2018),
+      featured("tv", 246, "Avatar: The Last Airbender", 2005),
+      featured("movie", 501929, "The Mitchells vs. the Machines", 2021)
+    ]
+  },
+  {
+    key: "family-night",
+    title: "Family night",
+    subtitle: "Broad, familiar picks for mixed-age viewing.",
+    items: [
+      featured("movie", 277834, "Moana", 2016),
+      featured("movie", 8587, "The Lion King", 1994),
+      featured("movie", 116149, "Paddington", 2014),
+      featured("movie", 862, "Toy Story", 1995)
+    ]
+  },
+  {
+    key: "low-intensity",
+    title: "Low intensity",
+    subtitle: "Calmer stories to check first when intensity matters.",
+    items: [
+      featured("movie", 16859, "Kiki's Delivery Service", 1989),
+      featured("movie", 8392, "My Neighbor Totoro", 1988),
+      featured("movie", 263109, "Shaun the Sheep Movie", 2015),
+      featured("movie", 227973, "The Peanuts Movie", 2015)
+    ]
+  },
+  {
+    key: "no-nudity-starting-points",
+    title: "Review first: nudity concern",
+    subtitle: "Popular picks to review when nudity is a hard concern.",
+    items: [
+      featured("movie", 12, "Finding Nemo", 2003),
+      featured("movie", 150540, "Inside Out", 2015),
+      featured("movie", 9806, "The Incredibles", 2004),
+      featured("movie", 324857, "Spider-Man: Into the Spider-Verse", 2018)
+    ]
+  },
+  {
+    key: "short-watches",
+    title: "Short watches",
+    subtitle: "Easy options for limited time windows.",
+    items: [
+      featured("tv", 80616, "Wallace & Gromit's Cracking Contraptions", 2002),
+      featured("movie", 13187, "A Charlie Brown Christmas", 1965),
+      featured("tv", 3902, "Shaun the Sheep", 2007),
+      featured("tv", 114501, "Dug Days", 2021)
+    ]
+  },
+  {
+    key: "teen-adventure",
+    title: "Tweens and teens",
+    subtitle: "Higher-energy titles worth checking against profile limits.",
+    items: [
+      featured("movie", 671, "Harry Potter and the Philosopher's Stone", 2001),
+      featured("movie", 411, "The Chronicles of Narnia", 2005),
+      featured("tv", 103540, "Percy Jackson and the Olympians", 2023),
+      featured("tv", 40075, "Gravity Falls", 2012)
+    ]
+  }
+];
+
+function featured(mediaType, tmdbId, title, releaseYear) {
+  return { mediaType, tmdbId, title, releaseYear };
+}
+
+async function mapLimit(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }

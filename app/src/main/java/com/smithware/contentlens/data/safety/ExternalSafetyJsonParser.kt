@@ -7,7 +7,10 @@ import org.json.JSONObject
 
 object ExternalSafetyJsonParser {
     fun parseReport(body: String): ExternalSafetyReport {
-        val root = JSONObject(body)
+        return parseReport(JSONObject(body))
+    }
+
+    fun parseReport(root: JSONObject): ExternalSafetyReport {
         return ExternalSafetyReport(
             source = root.optString("source").ifBlank { "External content safety source" },
             sourceItemId = root.optInt("sourceItemId", 0),

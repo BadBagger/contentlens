@@ -17,6 +17,7 @@ import com.smithware.contentlens.data.SettingsStore
 import com.smithware.contentlens.data.safety.ConfiguredContentSafetySource
 import com.smithware.contentlens.data.safety.DoesTheDogDieError
 import com.smithware.contentlens.data.safety.ExternalSafetyState
+import com.smithware.contentlens.data.safety.FeaturedFeedClient
 import com.smithware.contentlens.data.safety.ProxySafetyError
 import com.smithware.contentlens.data.UserProfileEntity
 import com.smithware.contentlens.data.WatchlistItemEntity
@@ -163,6 +164,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val fitEngine = LocalPersonalFitEngine()
     private val tmdbClient = TmdbClient()
     private val safetySource = ConfiguredContentSafetySource()
+    private val featuredFeedClient = FeaturedFeedClient()
 
     private val selectedTitleId = MutableStateFlow<String?>(null)
     private val selectedProfileId = MutableStateFlow<String?>(null)
@@ -532,20 +534,20 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun loadDiscoveryPresets() {
         viewModelScope.launch {
-            defaultDiscoveryPresets().forEach { preset ->
+            val feedStates = featuredFeedClient.safetyStates()
+            if (feedStates.isNotEmpty()) {
+                remoteSafety.value = remoteSafety.value + feedStates
+                return@launch
+            }
+            defaultDiscoveryPresets().flatMap { it.seeds }.map { it.toResult() }.take(8).forEach { result ->
                 launch {
-                    val results = preset.seeds.map { it.toResult() }
-                    results.forEach { result ->
-                        launch {
-                            val state = try {
-                                val report = safetySource.reportFor(result.toLightweightDetails())
-                                if (report == null) ExternalSafetyState.NoMatch else ExternalSafetyState.Loaded(report)
-                            } catch (error: Throwable) {
-                                error.toExternalSafetyState()
-                            }
-                            remoteSafety.value = remoteSafety.value + (remoteMediaKey(result.tmdbId, result.mediaType) to state)
-                        }
+                    val state = try {
+                        val report = safetySource.reportFor(result.toLightweightDetails())
+                        if (report == null) ExternalSafetyState.NoMatch else ExternalSafetyState.Loaded(report)
+                    } catch (error: Throwable) {
+                        error.toExternalSafetyState()
                     }
+                    remoteSafety.value = remoteSafety.value + (remoteMediaKey(result.tmdbId, result.mediaType) to state)
                 }
             }
         }

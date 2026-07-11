@@ -4,14 +4,14 @@ const FEATURED_FEED_TTL_MS = 60 * 60 * 1000;
 const cache = new Map();
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return json({}, 204);
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ ok: true, service: "contentlens-api" });
     }
     if (request.method === "GET" && url.pathname === "/v1/featured") {
-      return featuredResponse(env);
+      return featuredResponse(env, request, ctx);
     }
 
     const match = url.pathname.match(/^\/v1\/safety\/tmdb\/(movie|tv)\/(\d+)$/);
@@ -49,12 +49,23 @@ async function safetyResponse(mediaType, tmdbId, url, env) {
   return json(report);
 }
 
-async function featuredResponse(env) {
+async function featuredResponse(env, request, ctx) {
+  const edgeCache = typeof caches !== "undefined" ? caches.default : null;
+  const edgeCacheKey = new Request(new URL("/v1/featured", request.url).toString(), { method: "GET" });
+  if (edgeCache) {
+    const cachedResponse = await edgeCache.match(edgeCacheKey);
+    if (cachedResponse) return cachedResponse;
+  }
+
   const apiKey = env?.DOES_THE_DOG_DIE_API_KEY || "";
   const feedCacheKey = `featured-feed:v1:${apiKey ? "provider" : "empty"}`;
   const cached = cache.get(feedCacheKey);
   if (cached && cached.expiresAt > Date.now()) {
-    return json({ ...cached.value, cached: true });
+    return json(
+      { ...cached.value, cached: true },
+      200,
+      { "Cache-Control": "public, max-age=3600", "X-ContentLens-Cache": "memory" }
+    );
   }
 
   const generatedAt = new Date().toISOString();
@@ -74,7 +85,16 @@ async function featuredResponse(env) {
     sections
   };
   cache.set(feedCacheKey, { value: feed, expiresAt: Date.now() + FEATURED_FEED_TTL_MS });
-  return json(feed);
+  const response = json(feed, 200, { "Cache-Control": "public, max-age=3600", "X-ContentLens-Cache": "miss" });
+  if (edgeCache) {
+    const cacheWrite = edgeCache.put(edgeCacheKey, response.clone());
+    if (ctx?.waitUntil) {
+      ctx.waitUntil(cacheWrite);
+    } else {
+      await cacheWrite;
+    }
+  }
+  return response;
 }
 
 async function safetyReportForItem(apiKey, item, env) {
@@ -241,14 +261,15 @@ export function dogTmdbMatches(item, tmdbId, mediaType) {
   return Number(item?.tmdbId) === Number(tmdbId) && dogTypeMatches(item?.itemTypeName, mediaType);
 }
 
-function json(payload, status = 200) {
+function json(payload, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
+      "Access-Control-Allow-Headers": "Content-Type",
+      ...extraHeaders
     }
   });
 }

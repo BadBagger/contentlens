@@ -290,6 +290,7 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
             RemoteDetailUiState.None -> RemoteSearchContent(
                 state = state.remoteSearch,
                 remoteReports = state.remoteReports,
+                remoteSafety = state.remoteSafety,
                 onRetry = {
                     closeKeyboard()
                     viewModel.retrySearch()
@@ -323,6 +324,7 @@ private fun SearchScreen(state: AppUiState, viewModel: ContentLensViewModel, onO
 private fun RemoteSearchContent(
     state: RemoteSearchUiState,
     remoteReports: List<RemoteContentReportEntity>,
+    remoteSafety: Map<String, ExternalSafetyState>,
     onRetry: () -> Unit,
     onClear: () -> Unit,
     onLoadMore: () -> Unit,
@@ -359,6 +361,7 @@ private fun RemoteSearchContent(
                     result = result,
                     imageUrlBuilder = state.imageUrlBuilder,
                     reports = remoteReports.filter { it.remoteKey == remoteMediaKey(result.tmdbId, result.mediaType) },
+                    safety = remoteSafety[remoteMediaKey(result.tmdbId, result.mediaType)],
                     onClick = { onResultClick(result) }
                 )
             }
@@ -386,6 +389,7 @@ private fun RemotePosterResultCard(
     result: NormalizedMediaResult,
     imageUrlBuilder: ImageUrlBuilder,
     reports: List<RemoteContentReportEntity> = emptyList(),
+    safety: ExternalSafetyState? = null,
     onClick: () -> Unit
 ) {
     Card(
@@ -425,7 +429,7 @@ private fun RemotePosterResultCard(
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (reports.isEmpty()) {
-                        AssistChip(onClick = {}, label = { Text("Compatibility pending") })
+                        SearchSafetyChips(safety)
                     } else {
                         val highest = reports.maxByOrNull { it.severity.score }
                         AssistChip(onClick = {}, label = { Text("${reports.size} local reports") })
@@ -437,6 +441,28 @@ private fun RemotePosterResultCard(
         }
     }
 }
+
+@Composable
+private fun SearchSafetyChips(safety: ExternalSafetyState?) {
+    when (safety) {
+        null -> AssistChip(onClick = {}, label = { Text("Safety checking soon") })
+        ExternalSafetyState.Loading -> AssistChip(onClick = {}, label = { Text("Checking safety") })
+        is ExternalSafetyState.Loaded -> {
+            val top = safety.report.entries.maxByOrNull { it.severity.score }
+            AssistChip(onClick = {}, label = { Text("${safety.report.entries.size} safety warnings") })
+            if (top != null) {
+                AssistChip(onClick = {}, label = { Text("${top.category.label}: ${top.severity.label}") })
+            } else {
+                AssistChip(onClick = {}, label = { Text("No mapped warnings") })
+            }
+        }
+        ExternalSafetyState.NoMatch -> AssistChip(onClick = {}, label = { Text("No safety match") })
+        is ExternalSafetyState.UpgradeRequired -> AssistChip(onClick = {}, label = { Text("Provider tier needed") })
+        is ExternalSafetyState.Error -> AssistChip(onClick = {}, label = { Text("Safety unavailable") })
+        ExternalSafetyState.NotConfigured -> AssistChip(onClick = {}, label = { Text("Safety not configured") })
+    }
+}
+
 
 @Composable
 private fun RemoteDetailLoading(result: NormalizedMediaResult, onBack: () -> Unit) {
@@ -473,6 +499,21 @@ private fun RemoteTitleDetail(
             RemoteDetailHero(details, imageUrlBuilder)
         }
         item {
+            RemoteRatingReport(
+                details = details,
+                reports = detail.reports,
+                summary = detail.summary,
+                fit = detail.fit,
+                externalSafety = detail.externalSafety,
+                spoilerFreeMode = spoilerFreeMode,
+                showSpoilers = showSpoilers,
+                onToggleSpoilers = { showSpoilers = !showSpoilers }
+            )
+        }
+        item {
+            ExternalSafetySection(detail.externalSafety, compact = true)
+        }
+        item {
             SectionTitle("Rating details")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 AssistChip(onClick = {}, label = { Text(result.mediaType.label) })
@@ -492,21 +533,6 @@ private fun RemoteTitleDetail(
         item {
             SectionTitle("Overview")
             Text(result.overview.ifBlank { "No overview is available yet." }, color = Color(0xFF334155))
-        }
-        item {
-            RemoteRatingReport(
-                details = details,
-                reports = detail.reports,
-                summary = detail.summary,
-                fit = detail.fit,
-                externalSafety = detail.externalSafety,
-                spoilerFreeMode = spoilerFreeMode,
-                showSpoilers = showSpoilers,
-                onToggleSpoilers = { showSpoilers = !showSpoilers }
-            )
-        }
-        item {
-            ExternalSafetySection(detail.externalSafety)
         }
         item {
             RemoteReportComposer(details, viewModel)
@@ -562,6 +588,9 @@ private fun RemoteRatingReport(
 ) {
     val certification = details.certification
     val preliminary = certificationToLensRating(certification)
+    val externalReport = (externalSafety as? ExternalSafetyState.Loaded)?.report
+    val externalEntries = externalReport?.entries.orEmpty()
+    val hasAnyWarnings = reports.isNotEmpty() || externalEntries.isNotEmpty()
     SectionTitle("Rating report")
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(8.dp)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -571,7 +600,7 @@ private fun RemoteRatingReport(
                 AssistChip(onClick = {}, label = { Text(fit.label) })
                 AssistChip(onClick = {}, label = { Text(confidenceLabel(reports, externalSafety)) })
             }
-            if (reports.isEmpty()) {
+            if (!hasAnyWarnings) {
                 Text(
                     ratingExplanation(certification, preliminary),
                     color = Color(0xFF334155),
@@ -598,19 +627,25 @@ private fun RemoteRatingReport(
                 }
             } else {
                 Text(
-                    "Local ContentLens reports are available for this title. These reports are stored on this device and are not official certification.",
+                    if (reports.isNotEmpty()) {
+                        "Local ContentLens reports are available for this title. These reports are stored on this device and are not official certification."
+                    } else {
+                        "Community safety data is available for this title. ContentLens maps provider topics into its own informational categories."
+                    },
                     color = Color(0xFF334155),
                     style = MaterialTheme.typography.bodyMedium
                 )
                 SectionTitle("Top warnings")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    summary.topWarnings.forEach { AssistChip(onClick = {}, label = { Text(it) }) }
+                    summary.topWarnings.take(6).forEach { AssistChip(onClick = {}, label = { Text(it) }) }
                 }
-                SectionTitle("Detailed breakdown")
-                RemoteReportBreakdown(reports, spoilerFreeMode, showSpoilers)
-                if (reports.any { it.spoilerNote != null }) {
-                    TextButton(onClick = onToggleSpoilers) {
-                        Text(if (showSpoilers) "Hide detailed spoilers" else "Reveal detailed spoilers")
+                if (reports.isNotEmpty()) {
+                    SectionTitle("Detailed breakdown")
+                    RemoteReportBreakdown(reports, spoilerFreeMode, showSpoilers)
+                    if (reports.any { it.spoilerNote != null }) {
+                        TextButton(onClick = onToggleSpoilers) {
+                            Text(if (showSpoilers) "Hide detailed spoilers" else "Reveal detailed spoilers")
+                        }
                     }
                 }
             }
@@ -623,7 +658,7 @@ private fun RemoteRatingReport(
 }
 
 @Composable
-private fun ExternalSafetySection(state: ExternalSafetyState) {
+private fun ExternalSafetySection(state: ExternalSafetyState, compact: Boolean = false) {
     SectionTitle("Content safety source")
     when (state) {
         ExternalSafetyState.NotConfigured -> InfoCard(
@@ -644,7 +679,15 @@ private fun ExternalSafetySection(state: ExternalSafetyState) {
                     AssistChip(onClick = {}, label = { Text("${state.report.entries.size} mapped warnings") })
                     AssistChip(onClick = {}, label = { Text("${state.report.reportCount} community votes") })
                 }
-                state.report.entries.take(8).forEach { ExternalSafetyRow(it) }
+                if (state.report.entries.isEmpty()) {
+                    Text(
+                        "The provider matched this title, but no mapped ContentLens warnings were returned.",
+                        color = Color(0xFF475569),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                } else {
+                    state.report.entries.take(if (compact) 3 else 8).forEach { ExternalSafetyRow(it) }
+                }
                 Text(
                     state.report.attribution,
                     color = Color(0xFF64748B),

@@ -65,3 +65,5 @@ The key can be stored in ignored `local.properties` or provided as the `DOES_THE
 Without proxy or direct-provider configuration, title details show a content safety source not configured state and continue to use local reports plus TMDB certification metadata.
 
 Cold provider-backed safety lookups can take several seconds. The Android proxy client uses a longer read timeout for this path than TMDB search so a slow first lookup does not incorrectly appear as an offline API.
+
+Search results prefetch lightweight safety summaries for the first visible cards. TMDB title/poster results still render first; safety chips update in place as provider data returns.

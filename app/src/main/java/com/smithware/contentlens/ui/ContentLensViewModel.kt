@@ -66,6 +66,7 @@ data class AppUiState(
     val settings: AppSettings = AppSettings(),
     val query: String = "",
     val remoteSearch: RemoteSearchUiState = RemoteSearchUiState.Initial,
+    val remoteSafety: Map<String, ExternalSafetyState> = emptyMap(),
     val remoteDetail: RemoteDetailUiState = RemoteDetailUiState.None
 )
 
@@ -118,9 +119,11 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val selectedProfileId = MutableStateFlow<String?>(null)
     private val query = MutableStateFlow("")
     private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
+    private val remoteSafety = MutableStateFlow<Map<String, ExternalSafetyState>>(emptyMap())
     private val remoteDetail = MutableStateFlow<RemoteDetailUiState>(RemoteDetailUiState.None)
     private var remoteSearchJob: Job? = null
     private var remoteDetailJob: Job? = null
+    private val remoteSafetyJobs = mutableMapOf<String, Job>()
     private val _uiState = MutableStateFlow(AppUiState())
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
@@ -138,7 +141,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             ) { titles, profiles, watchlist, reports, settings ->
                 StoredBase(titles, profiles, watchlist, reports.reports, reports.remoteReports, settings)
             }
-            val storedState = combine(storedBase, remoteSearch) { stored, searchState ->
+            val storedState = combine(storedBase, remoteSearch, remoteSafety) { stored, searchState, safetyState ->
                 StoredState(
                     titles = stored.titles,
                     profiles = stored.profiles,
@@ -146,7 +149,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     reports = stored.reports,
                     remoteReports = stored.remoteReports,
                     settings = stored.settings,
-                    remoteSearch = searchState
+                    remoteSearch = searchState,
+                    remoteSafety = safetyState
                 )
             }
             val appStoredState = combine(storedState, remoteDetail) { stored, detail ->
@@ -169,6 +173,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     activeProfileId = activeProfileId,
                     query = control.query,
                     remoteSearch = stored.remoteSearch,
+                    remoteSafety = stored.remoteSafety,
                     remoteDetail = storedWithDetail.remoteDetail
                 )
             }.flatMapLatest { base ->
@@ -210,6 +215,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         settings = base.settings,
                         query = base.query,
                         remoteSearch = base.remoteSearch,
+                        remoteSafety = base.remoteSafety,
                         remoteDetail = remoteDetail
                     )
                 }
@@ -231,16 +237,20 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 val (details, config) = tmdbClient.details(result)
                 val reports = dao.getRemoteReports(remoteMediaKey(result.tmdbId, result.mediaType))
                 val localEntries = reports.map { it.toEntry() }
+                val safetyKey = remoteMediaKey(result.tmdbId, result.mediaType)
+                val cachedSafety = remoteSafety.value[safetyKey]
                 val loaded = RemoteDetailUiState.Loaded(
                     details = details,
                     imageUrlBuilder = ImageUrlBuilder(config),
                     reports = reports,
-                    externalSafety = ExternalSafetyState.Loading,
+                    externalSafety = cachedSafety ?: ExternalSafetyState.Loading,
                     summary = ratingEngine.summarize(localEntries),
                     fit = fitEngine.evaluate(localEntries, uiState.value.sensitivities)
                 )
                 remoteDetail.value = loaded
-                loadExternalSafety(loaded)
+                if (cachedSafety !is ExternalSafetyState.Loaded && cachedSafety !is ExternalSafetyState.NoMatch) {
+                    loadExternalSafety(loaded)
+                }
             } catch (error: Throwable) {
                 remoteDetail.value = RemoteDetailUiState.Error(result, error.toSearchUiState(result.title).let {
                     when (it) {
@@ -289,6 +299,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     totalResults = page.totalResults,
                     isLoadingMore = false
                 )
+                prefetchSearchSafety(page.results)
             } catch (error: Throwable) {
                 remoteSearch.value = error.toSearchUiState(current.query)
             }
@@ -304,7 +315,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                 trimmed.length < 2 -> remoteSearch.value = RemoteSearchUiState.Waiting(trimmed)
                 else -> {
                     remoteSearch.value = RemoteSearchUiState.Waiting(trimmed)
-                    if (!skipDebounce) delay(400)
+                    if (!skipDebounce) delay(250)
                     remoteSearch.value = RemoteSearchUiState.Loading(trimmed)
                     try {
                         val (page, config) = tmdbClient.searchAll(trimmed, page = 1)
@@ -318,7 +329,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                                 page = page.page,
                                 totalPages = page.totalPages,
                                 totalResults = page.totalResults
-                            )
+                            ).also { prefetchSearchSafety(page.results) }
                         }
                     } catch (error: Throwable) {
                         remoteSearch.value = error.toSearchUiState(trimmed)
@@ -409,7 +420,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private suspend fun loadExternalSafety(loaded: RemoteDetailUiState.Loaded) {
         val state = try {
             val report = safetySource.reportFor(loaded.details)
-            if (report == null || report.entries.isEmpty()) {
+            if (report == null) {
                 ExternalSafetyState.NoMatch
             } else {
                 ExternalSafetyState.Loaded(report)
@@ -427,6 +438,24 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             summary = ratingEngine.summarize(allEntries),
             fit = fitEngine.evaluate(allEntries, uiState.value.sensitivities)
         )
+        remoteSafety.value = remoteSafety.value + (current.details.remoteKey() to state)
+    }
+
+    private fun prefetchSearchSafety(results: List<NormalizedMediaResult>) {
+        results.take(3).forEach { result ->
+            val key = remoteMediaKey(result.tmdbId, result.mediaType)
+            if (remoteSafety.value[key] != null || remoteSafetyJobs[key]?.isActive == true) return@forEach
+            remoteSafety.value = remoteSafety.value + (key to ExternalSafetyState.Loading)
+            remoteSafetyJobs[key] = viewModelScope.launch {
+                val state = try {
+                    val report = safetySource.reportFor(result.toLightweightDetails())
+                    if (report == null) ExternalSafetyState.NoMatch else ExternalSafetyState.Loaded(report)
+                } catch (error: Throwable) {
+                    error.toExternalSafetyState()
+                }
+                remoteSafety.value = remoteSafety.value + (key to state)
+            }
+        }
     }
 
     fun setSpoilerFreeMode(enabled: Boolean) {
@@ -452,6 +481,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val activeProfileId: String?,
         val query: String,
         val remoteSearch: RemoteSearchUiState,
+        val remoteSafety: Map<String, ExternalSafetyState>,
         val remoteDetail: RemoteDetailUiState
     )
 
@@ -462,7 +492,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val reports: List<ContentReportEntity>,
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
-        val remoteSearch: RemoteSearchUiState
+        val remoteSearch: RemoteSearchUiState,
+        val remoteSafety: Map<String, ExternalSafetyState>
     )
 
     private data class AppStoredState(
@@ -525,6 +556,20 @@ private fun Throwable.toExternalSafetyState(): ExternalSafetyState = when (this)
 }
 
 private fun TmdbTitleDetails.remoteKey(): String = remoteMediaKey(result.tmdbId, result.mediaType)
+
+private fun NormalizedMediaResult.toLightweightDetails(): TmdbTitleDetails = TmdbTitleDetails(
+    result = this,
+    runtimeMinutes = null,
+    episodeRuntimeMinutes = null,
+    genres = emptyList(),
+    status = null,
+    numberOfSeasons = null,
+    numberOfEpisodes = null,
+    certification = null,
+    cast = emptyList(),
+    similar = emptyList(),
+    watchProviders = emptyList()
+)
 
 class ContentLensViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")

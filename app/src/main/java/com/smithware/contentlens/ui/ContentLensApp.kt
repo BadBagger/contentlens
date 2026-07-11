@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -148,7 +149,19 @@ fun ContentLensApp(viewModel: ContentLensViewModel) {
                 color = MaterialTheme.colorScheme.background
             ) {
                 when (screen) {
-                    Screen.Home -> HomeScreen(state, viewModel, onOpenSearch = { screen = Screen.Search })
+                    Screen.Home -> HomeScreen(
+                        state = state,
+                        viewModel = viewModel,
+                        onOpenSearch = { screen = Screen.Search },
+                        onOpenRemote = {
+                            viewModel.selectRemoteResult(it)
+                            screen = Screen.Search
+                        },
+                        onOpenPreset = {
+                            viewModel.searchPreset(it)
+                            screen = Screen.Search
+                        }
+                    )
                     Screen.Search -> SearchScreen(state, viewModel, onOpenReport = { screen = Screen.Report })
                     Screen.Watchlist -> WatchlistScreen(state, viewModel)
                     Screen.Profiles -> ProfilesScreen(state, viewModel)
@@ -161,7 +174,13 @@ fun ContentLensApp(viewModel: ContentLensViewModel) {
 }
 
 @Composable
-private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpenSearch: () -> Unit) {
+private fun HomeScreen(
+    state: AppUiState,
+    viewModel: ContentLensViewModel,
+    onOpenSearch: () -> Unit,
+    onOpenRemote: (NormalizedMediaResult) -> Unit,
+    onOpenPreset: (DiscoverySectionState) -> Unit
+) {
     LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Header(
@@ -183,10 +202,19 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
             }
         }
         item {
-            SectionTitle("Start discovering")
-            InfoCard(
-                "Search movies and TV",
-                "Find real TMDB titles with posters, ratings, cast, provider availability, and ContentLens context."
+            SectionTitle("Quick picks")
+            Text(
+                "Safety summaries load in the background so common shelves are ready faster after the first check.",
+                color = Color(0xFF64748B),
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+        items(state.discoverySections, key = { it.key }) { section ->
+            DiscoveryShelf(
+                section = section,
+                safety = state.remoteSafety,
+                onOpenPreset = { onOpenPreset(section) },
+                onOpenRemote = onOpenRemote
             )
         }
         item {
@@ -208,6 +236,87 @@ private fun HomeScreen(state: AppUiState, viewModel: ContentLensViewModel, onOpe
             }
         }
     }
+}
+
+@Composable
+private fun DiscoveryShelf(
+    section: DiscoverySectionState,
+    safety: Map<String, ExternalSafetyState>,
+    onOpenPreset: () -> Unit,
+    onOpenRemote: (NormalizedMediaResult) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(section.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text(section.subtitle, color = Color(0xFF64748B), style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onOpenPreset, enabled = section.results.isNotEmpty()) { Text("See all") }
+        }
+        when {
+            section.loading -> LoadingState("Loading picks", "Preparing ${section.title.lowercase()} with posters and safety checks.")
+            section.error != null -> InfoCard(section.title, section.error)
+            section.results.isEmpty() -> EmptyState("No picks loaded", "Try Search while this shelf refreshes.")
+            section.imageUrlBuilder != null -> LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(section.results, key = { "${section.key}-${it.mediaType}-${it.tmdbId}" }) { result ->
+                    DiscoveryPosterCard(
+                        result = result,
+                        imageUrlBuilder = section.imageUrlBuilder,
+                        safety = safety[remoteMediaKey(result.tmdbId, result.mediaType)],
+                        onClick = { onOpenRemote(result) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryPosterCard(
+    result: NormalizedMediaResult,
+    imageUrlBuilder: ImageUrlBuilder,
+    safety: ExternalSafetyState?,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.width(132.dp)
+    ) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            PosterArtwork(
+                url = imageUrlBuilder.poster(result.posterPath),
+                contentDescription = "Poster for ${result.title}",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(result.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+            Text(
+                listOfNotNull(result.releaseYear?.toString(), result.mediaType.label).joinToString(" / "),
+                color = Color(0xFF64748B),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1
+            )
+            CompactSafetyText(safety)
+        }
+    }
+}
+
+@Composable
+private fun CompactSafetyText(safety: ExternalSafetyState?) {
+    val label = when (safety) {
+        null -> "Safety queued"
+        ExternalSafetyState.Loading -> "Checking safety"
+        is ExternalSafetyState.Loaded -> {
+            val top = safety.report.entries.maxByOrNull { it.severity.score }
+            top?.let { "${it.category.label}: ${it.severity.label}" } ?: "No mapped warnings"
+        }
+        ExternalSafetyState.NoMatch -> "No safety match"
+        is ExternalSafetyState.UpgradeRequired -> "Provider tier needed"
+        is ExternalSafetyState.Error -> "Safety unavailable"
+        ExternalSafetyState.NotConfigured -> "Safety not configured"
+    }
+    Text(label, color = Color(0xFF0F766E), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable

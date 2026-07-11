@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
@@ -67,7 +68,25 @@ data class AppUiState(
     val query: String = "",
     val remoteSearch: RemoteSearchUiState = RemoteSearchUiState.Initial,
     val remoteSafety: Map<String, ExternalSafetyState> = emptyMap(),
+    val discoverySections: List<DiscoverySectionState> = emptyList(),
     val remoteDetail: RemoteDetailUiState = RemoteDetailUiState.None
+)
+
+data class DiscoverySectionState(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val results: List<NormalizedMediaResult> = emptyList(),
+    val imageUrlBuilder: ImageUrlBuilder? = null,
+    val loading: Boolean = true,
+    val error: String? = null
+)
+
+private data class DiscoveryPreset(
+    val key: String,
+    val title: String,
+    val subtitle: String,
+    val seeds: List<String>
 )
 
 sealed class RemoteSearchUiState {
@@ -120,6 +139,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     private val query = MutableStateFlow("")
     private val remoteSearch = MutableStateFlow<RemoteSearchUiState>(RemoteSearchUiState.Initial)
     private val remoteSafety = MutableStateFlow<Map<String, ExternalSafetyState>>(emptyMap())
+    private val discoverySections = MutableStateFlow(defaultDiscoverySections())
     private val remoteDetail = MutableStateFlow<RemoteDetailUiState>(RemoteDetailUiState.None)
     private var remoteSearchJob: Job? = null
     private var remoteDetailJob: Job? = null
@@ -128,6 +148,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
 
     init {
+        loadDiscoveryPresets()
         viewModelScope.launch {
             val reportBase = combine(dao.observeReports(), dao.observeRemoteReports()) { reports, remoteReports ->
                 ReportBase(reports, remoteReports)
@@ -141,7 +162,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
             ) { titles, profiles, watchlist, reports, settings ->
                 StoredBase(titles, profiles, watchlist, reports.reports, reports.remoteReports, settings)
             }
-            val storedState = combine(storedBase, remoteSearch, remoteSafety) { stored, searchState, safetyState ->
+            val storedState = combine(storedBase, remoteSearch, remoteSafety, discoverySections) { stored, searchState, safetyState, discovery ->
                 StoredState(
                     titles = stored.titles,
                     profiles = stored.profiles,
@@ -150,7 +171,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     remoteReports = stored.remoteReports,
                     settings = stored.settings,
                     remoteSearch = searchState,
-                    remoteSafety = safetyState
+                    remoteSafety = safetyState,
+                    discoverySections = discovery
                 )
             }
             val appStoredState = combine(storedState, remoteDetail) { stored, detail ->
@@ -174,6 +196,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                     query = control.query,
                     remoteSearch = stored.remoteSearch,
                     remoteSafety = stored.remoteSafety,
+                    discoverySections = stored.discoverySections,
                     remoteDetail = storedWithDetail.remoteDetail
                 )
             }.flatMapLatest { base ->
@@ -216,6 +239,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
                         query = base.query,
                         remoteSearch = base.remoteSearch,
                         remoteSafety = base.remoteSafety,
+                        discoverySections = base.discoverySections,
                         remoteDetail = remoteDetail
                     )
                 }
@@ -281,6 +305,24 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
 
     fun retrySearch() {
         startRemoteSearch(query.value, skipDebounce = true)
+    }
+
+    fun searchPreset(section: DiscoverySectionState) {
+        query.value = section.title
+        val builder = section.imageUrlBuilder
+        if (builder != null && section.results.isNotEmpty()) {
+            remoteSearch.value = RemoteSearchUiState.Results(
+                query = section.title,
+                results = section.results,
+                imageUrlBuilder = builder,
+                page = 1,
+                totalPages = 1,
+                totalResults = section.results.size
+            )
+            prefetchSearchSafety(section.results)
+        } else {
+            startRemoteSearch(section.title, skipDebounce = true)
+        }
     }
 
     fun loadMoreRemoteResults() {
@@ -458,6 +500,38 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun loadDiscoveryPresets() {
+        viewModelScope.launch {
+            defaultDiscoveryPresets().forEach { preset ->
+                launch {
+                    try {
+                        val seedResults = preset.seeds.map { seed ->
+                            async { tmdbClient.searchAll(seed, page = 1) }
+                        }.map { it.await() }
+                        val config = seedResults.firstOrNull()?.second ?: tmdbClient.configuration()
+                        val results = seedResults
+                            .flatMap { it.first.results.take(2) }
+                            .distinctBy { it.mediaType to it.tmdbId }
+                            .sortedWith(compareByDescending<NormalizedMediaResult> { it.voteCount }.thenByDescending { it.voteAverage })
+                            .take(8)
+                        discoverySections.value = discoverySections.value.map {
+                            if (it.key == preset.key) {
+                                it.copy(results = results, imageUrlBuilder = ImageUrlBuilder(config), loading = false, error = null)
+                            } else {
+                                it
+                            }
+                        }
+                        prefetchSearchSafety(results.take(3))
+                    } catch (error: Throwable) {
+                        discoverySections.value = discoverySections.value.map {
+                            if (it.key == preset.key) it.copy(loading = false, error = "Could not load this shelf.") else it
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun setSpoilerFreeMode(enabled: Boolean) {
         viewModelScope.launch { settingsStore.setSpoilerFreeMode(enabled) }
     }
@@ -482,6 +556,7 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val query: String,
         val remoteSearch: RemoteSearchUiState,
         val remoteSafety: Map<String, ExternalSafetyState>,
+        val discoverySections: List<DiscoverySectionState>,
         val remoteDetail: RemoteDetailUiState
     )
 
@@ -493,7 +568,8 @@ class ContentLensViewModel(application: Application) : AndroidViewModel(applicat
         val remoteReports: List<RemoteContentReportEntity>,
         val settings: AppSettings,
         val remoteSearch: RemoteSearchUiState,
-        val remoteSafety: Map<String, ExternalSafetyState>
+        val remoteSafety: Map<String, ExternalSafetyState>,
+        val discoverySections: List<DiscoverySectionState>
     )
 
     private data class AppStoredState(
@@ -569,6 +645,51 @@ private fun NormalizedMediaResult.toLightweightDetails(): TmdbTitleDetails = Tmd
     cast = emptyList(),
     similar = emptyList(),
     watchProviders = emptyList()
+)
+
+private fun defaultDiscoverySections(): List<DiscoverySectionState> {
+    return defaultDiscoveryPresets().map {
+        DiscoverySectionState(key = it.key, title = it.title, subtitle = it.subtitle)
+    }
+}
+
+private fun defaultDiscoveryPresets(): List<DiscoveryPreset> = listOf(
+    DiscoveryPreset(
+        key = "little-kids",
+        title = "Best for kids under 3",
+        subtitle = "Gentle preschool and toddler-friendly starting points.",
+        seeds = listOf("Bluey", "Daniel Tiger", "Puffin Rock", "Winnie the Pooh")
+    ),
+    DiscoveryPreset(
+        key = "family-night",
+        title = "Family night",
+        subtitle = "Broad, familiar picks for mixed-age viewing.",
+        seeds = listOf("Moana", "The Lion King", "Paddington", "Toy Story")
+    ),
+    DiscoveryPreset(
+        key = "low-intensity",
+        title = "Low intensity",
+        subtitle = "Calmer stories to check first when intensity matters.",
+        seeds = listOf("Kiki's Delivery Service", "My Neighbor Totoro", "A Shaun the Sheep Movie", "The Peanuts Movie")
+    ),
+    DiscoveryPreset(
+        key = "no-nudity-starting-points",
+        title = "Review first: nudity concern",
+        subtitle = "Popular picks to review when nudity is a hard concern.",
+        seeds = listOf("Finding Nemo", "Inside Out", "The Incredibles", "Spider-Man Into the Spider-Verse")
+    ),
+    DiscoveryPreset(
+        key = "short-watches",
+        title = "Short watches",
+        subtitle = "Easy options for limited time windows.",
+        seeds = listOf("Wallace and Gromit", "Charlie Brown", "Shaun the Sheep", "Dug Days")
+    ),
+    DiscoveryPreset(
+        key = "teen-adventure",
+        title = "Teen adventure",
+        subtitle = "Higher-energy titles worth checking against profile limits.",
+        seeds = listOf("Harry Potter", "Spider-Man", "Percy Jackson", "Avatar The Last Airbender")
+    )
 )
 
 class ContentLensViewModelFactory(private val application: Application) : ViewModelProvider.Factory {

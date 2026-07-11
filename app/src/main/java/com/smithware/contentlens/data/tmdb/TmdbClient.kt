@@ -19,16 +19,33 @@ class TmdbClient(
 ) {
     suspend fun searchAll(query: String, page: Int = 1): Pair<TmdbSearchPage, TmdbImageConfiguration> {
         val trimmed = query.trim()
+        if (trimmed.length < 2) {
+            SafeLog.debug(TAG, "TMDB search skipped for short query length=${trimmed.length}")
+            return TmdbSearchPage(emptyList(), page = 1, totalPages = 1, totalResults = 0) to TmdbImageConfiguration()
+        }
         if (readAccessToken.isBlank() && apiKey.isBlank()) throw TmdbSearchError.MissingToken()
+        val queries = queryVariants(trimmed)
         return coroutineScope {
-            val movie = async { search(RemoteMediaType.Movie, trimmed, page) }
-            val tv = async { search(RemoteMediaType.Tv, trimmed, page) }
+            val movie = async { searchVariants(RemoteMediaType.Movie, queries, page) }
+            val tv = async { searchVariants(RemoteMediaType.Tv, queries, page) }
             val config = async { configuration() }
             val moviePage = movie.await()
             val tvPage = tv.await()
-            val merged = merge(moviePage, tvPage)
+            val merged = merge(moviePage, tvPage, trimmed)
             merged to config.await()
         }
+    }
+
+    private suspend fun searchVariants(mediaType: RemoteMediaType, queries: List<String>, page: Int): TmdbSearchPage {
+        val pages = queries.map { search(mediaType, it, page) }
+        if (pages.size == 1) return pages.single()
+        val results = pages.flatMap { it.results }.distinctBy { it.mediaType to it.tmdbId }
+        return TmdbSearchPage(
+            results = results,
+            page = pages.minOf { it.page },
+            totalPages = pages.maxOf { it.totalPages },
+            totalResults = maxOf(pages.maxOf { it.totalResults }, results.size)
+        )
     }
 
     suspend fun configuration(): TmdbImageConfiguration = withContext(Dispatchers.IO) {
@@ -102,10 +119,15 @@ class TmdbClient(
         }
     }
 
-    private fun merge(movie: TmdbSearchPage, tv: TmdbSearchPage): TmdbSearchPage {
+    private fun merge(movie: TmdbSearchPage, tv: TmdbSearchPage, query: String): TmdbSearchPage {
+        val normalizedQuery = normalizeForMatch(query)
         val mergedResults = (movie.results + tv.results)
             .distinctBy { it.mediaType to it.tmdbId }
-            .sortedWith(compareByDescending<NormalizedMediaResult> { it.popularity }.thenByDescending { it.voteCount })
+            .sortedWith(
+                compareByDescending<NormalizedMediaResult> { titleMatchScore(normalizedQuery, it) }
+                    .thenByDescending { it.popularity }
+                    .thenByDescending { it.voteCount }
+            )
         return TmdbSearchPage(
             results = mergedResults,
             page = minOf(movie.page, tv.page),
@@ -160,7 +182,28 @@ class TmdbClient(
         return "$path${separator}api_key=$encodedKey"
     }
 
+    private fun titleMatchScore(normalizedQuery: String, result: NormalizedMediaResult): Int {
+        val candidates = listOf(result.title, result.originalTitle).map(::normalizeForMatch)
+        if (candidates.any { it == normalizedQuery }) return 3
+        if (candidates.any { it.startsWith(normalizedQuery) }) return 2
+        if (candidates.any { it.contains(normalizedQuery) }) return 1
+        return 0
+    }
+
+    private fun normalizeForMatch(value: String): String {
+        return value.lowercase().filter { it.isLetterOrDigit() }
+    }
+
+    private fun queryVariants(query: String): List<String> {
+        return buildList {
+            add(query)
+            val middleDot = query.replace('-', '\u00B7')
+            if (middleDot != query) add(middleDot)
+        }.distinct()
+    }
+
     private companion object {
         const val TAG = "TmdbClient"
     }
 }
+

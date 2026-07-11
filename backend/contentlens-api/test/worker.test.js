@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import worker, { mapTopicToCategory, normalizeDogReport } from "../src/worker.js";
+import worker, { dogTmdbMatches, mapTopicToCategory, normalizeDogReport } from "../src/worker.js";
 
 test("worker exposes health response", async () => {
   const response = await worker.fetch(new Request("https://contentlens.test/health"), {});
@@ -22,4 +22,9 @@ test("worker maps topics and report shape", () => {
 
   assert.equal(report.entries[0].category, "AnimalHarm");
   assert.equal(report.entries[0].severity, "GraphicHeavy");
+});
+
+test("worker matches provider TMDB ids when returned as strings", () => {
+  assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "Movie" }, 603, "movie"), true);
+  assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "TV" }, 603, "tv"), true);
 });

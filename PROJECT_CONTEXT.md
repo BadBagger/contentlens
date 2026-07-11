@@ -5,7 +5,7 @@
 - App: ContentLens
 - Package: `com.smithware.contentlens`
 - Repo target: `BadBagger/contentlens`
-- Latest published release: `v0.3.2-proxy-default`
+- Latest published release: `v0.3.3-safety-timeout`
 - Current development stage: Phase 1/2 TMDB search and artwork repair is implemented and verified with a locally configured TMDB API key. DoesTheDogDie API v3 is supported through a Smithware proxy backend, with direct Android provider calls retained only for local testing.
 - Storage: local Room database plus DataStore settings
 - Backend: Smithware ContentLens API proxy on Sites for provider-backed content safety. The Android app remains local-first and uses the proxy only for external safety lookups.
@@ -96,6 +96,10 @@ Implemented MVP:
 - `v0.3.2-proxy-default`: makes the public Smithware safety proxy URL the checked-in Android default so public builds do not silently ship with an empty content-safety endpoint, refreshes the Sites deployment from source version 7, and updates safety-source copy to refer to the ContentLens proxy rather than only local DoesTheDogDie keys.
 - Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.2-proxy-default`
 - APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.2-proxy-default.apk`
+- Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
+- `v0.3.3-safety-timeout`: fixes the visible `ContentLens API could not be reached` safety-source failures by increasing the Android proxy read timeout for slow cold provider lookups and by making the backend match provider TMDB IDs whether they arrive as numbers or strings, avoiding unnecessary fallback provider calls.
+- Release URL: `https://github.com/BadBagger/contentlens/releases/tag/v0.3.3-safety-timeout`
+- APK assets: `ContentLens.apk`, `ContentLens-release-v0.3.3-safety-timeout.apk`
 - Release signing certificate SHA-256: `76eda33cc19ce4ccf514fe9381e6d7da1d8658474fdf06f3b69ebfecd4e2c554`
 
 ## Phase 1/2 Search Repair Notes

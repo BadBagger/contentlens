@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mapTopicToCategory, normalizeDogReport } from "../src/server.js";
+import { dogTmdbMatches, mapTopicToCategory, normalizeDogReport } from "../src/server.js";
 
 test("maps DoesTheDogDie topics to ContentLens categories", () => {
   assert.equal(mapTopicToCategory("a dog dies"), "AnimalHarm");
@@ -26,4 +26,9 @@ test("normalizes topic stats into public safety report shape", () => {
   assert.equal(report.entries[0].category, "AnimalHarm");
   assert.equal(report.entries[0].severity, "GraphicHeavy");
   assert.ok(report.entries.some((entry) => entry.category === "SexualAssault" && entry.severity === "Strong"));
+});
+
+test("matches provider TMDB ids when returned as strings", () => {
+  assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "Movie" }, 603, "movie"), true);
+  assert.equal(dogTmdbMatches({ tmdbId: "603", itemTypeName: "Movie" }, 603, "tv"), false);
 });

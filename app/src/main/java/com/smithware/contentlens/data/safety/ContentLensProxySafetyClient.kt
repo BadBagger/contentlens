@@ -38,8 +38,8 @@ class ContentLensProxySafetyClient(
         val url = URL(baseUrl.trimEnd('/') + path)
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 10_000
-            readTimeout = 15_000
+            connectTimeout = 15_000
+            readTimeout = 45_000
             setRequestProperty("Accept", "application/json")
         }
         return try {

@@ -47,7 +47,7 @@ async function safetyResponse(mediaType, tmdbId, url, env) {
 
 async function findDogItem(apiKey, mediaType, tmdbId, title, year) {
   const byTmdb = await dogFetchJson(apiKey, `/items?tmdb=${encodeURIComponent(String(tmdbId))}`);
-  const tmdbMatch = asArray(byTmdb).find((item) => item.tmdbId === tmdbId && dogTypeMatches(item.itemTypeName, mediaType));
+  const tmdbMatch = asArray(byTmdb).find((item) => dogTmdbMatches(item, tmdbId, mediaType));
   if (tmdbMatch) return tmdbMatch;
 
   if (!title) return null;
@@ -163,6 +163,10 @@ function explainTopic(topicName, yes, no, comments) {
 function dogTypeMatches(itemTypeName, mediaType) {
   if (mediaType === "movie") return itemTypeName === "Movie";
   return itemTypeName === "TV" || itemTypeName === "TV Show";
+}
+
+export function dogTmdbMatches(item, tmdbId, mediaType) {
+  return Number(item?.tmdbId) === Number(tmdbId) && dogTypeMatches(item?.itemTypeName, mediaType);
 }
 
 function json(payload, status = 200) {
